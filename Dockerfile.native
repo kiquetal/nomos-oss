@@ -1,0 +1,42 @@
+####
+# Multi-stage Dockerfile for Quarkus native mode (GraalVM/Mandrel)
+#
+# Build:
+#   docker build -f Dockerfile.native -t py.com.edge/nomos:1.0.0-native .
+#
+# Run:
+#   docker run -i --rm -p 8080:8080 -e NEO4J_URI=bolt://host.docker.internal:7687 py.com.edge/nomos:1.0.0-native
+#
+# Note: Native build requires significant memory (~6GB). Adjust Docker daemon memory if needed.
+###
+
+# --- Build stage ---
+FROM quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 AS build
+
+USER quarkus
+WORKDIR /code
+
+# Cache Maven dependencies
+COPY --chown=quarkus:quarkus .mvn /code/.mvn
+COPY --chown=quarkus:quarkus mvnw /code/mvnw
+COPY --chown=quarkus:quarkus pom.xml /code/
+RUN ./mvnw dependency:go-offline -B
+
+# Build native executable
+COPY --chown=quarkus:quarkus src /code/src
+RUN ./mvnw package -Pnative -DskipTests -B
+
+# --- Runtime stage (minimal image ~30MB) ---
+FROM quay.io/quarkus/ubi9-quarkus-micro-image:2.0
+
+WORKDIR /work
+RUN chown 1001 /work \
+    && chmod "g+rwX" /work \
+    && chown 1001:root /work
+
+COPY --from=build --chown=1001:root --chmod=0755 /code/target/*-runner /work/application
+
+EXPOSE 8080
+USER 1001
+
+ENTRYPOINT ["./application", "-Dquarkus.http.host=0.0.0.0"]
