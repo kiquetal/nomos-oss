@@ -6,39 +6,50 @@ The API Service pod fetches rules from Nomos on startup (or cache miss) and cach
 
 ```javascript
 const Redis = require('ioredis');
-const axios = require('axios');
 const jp = require('jsonpath');
 
 const redis = new Redis(process.env.REDIS_URL);
 const NOMOS_URL = process.env.NOMOS_URL; // e.g. http://nomos:8080
-const PROXY_NAME = process.env.POD_NAME; // e.g. account-service
+const PROXY_NAME = process.env.POD_NAME; // e.g. billing-service
 
 // Cache TTL for rules (5 minutes)
 const RULES_TTL = 300;
-// Cache for enrichment responses (per user)
-const enrichmentCache = new Map();
 ```
 
 ## Fetch Rules from Nomos (with Redis cache)
 
 ```javascript
-async function getRules(aud) {
-  const cacheKey = `nomos:${PROXY_NAME}:${aud}`;
+async function getRules(aud, iss, httpMethod) {
+  const cacheKey = `nomos:${PROXY_NAME}:${aud}:${iss}:${httpMethod}`;
 
   // Try Redis first
   const cached = await redis.get(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  // Cache miss → call Nomos (only needs aud + proxy)
-  const res = await axios.get(`${NOMOS_URL}/api/v1/rules`, {
-    params: { proxy: PROXY_NAME, aud }
-  });
+  // Cache miss → call Nomos
+  const res = await fetch(`${NOMOS_URL}/api/v1/rules?proxy=${PROXY_NAME}&aud=${encodeURIComponent(aud)}&iss=${encodeURIComponent(iss)}&method=${encodeURIComponent(httpMethod)}`);
 
-  if (res.status === 404) return null; // App doesn't have access
+  // Nomos returns 403 when:
+  //   - audience is unknown (no App has USES_IDP with this aud)
+  //   - audience exists but has no ACCESS_PROXY to this proxy
+  if (res.status === 403) {
+    const body = await res.json();
+    // body = { "error": "UNKNOWN_AUDIENCE", "message": "No app found for audience 'xxx'" }
+    // or   = { "error": "PROXY_NOT_ALLOWED", "message": "Audience 'xxx' does not have access to proxy 'billing-service'" }
+    return { nomosError: true, status: 403, error: body.error, message: body.message };
+  }
 
-  // Cache in Redis
-  await redis.setex(cacheKey, RULES_TTL, JSON.stringify(res.data));
-  return res.data;
+  const data = await res.json();
+  // data = {
+  //   "proxy": "billing-service",
+  //   "appId": "mobile-app-co",
+  //   "idp": "auth0",
+  //   "defaultPolicy": "allow",
+  //   "rules": [ ... ]
+  // }
+
+  await redis.setex(cacheKey, RULES_TTL, JSON.stringify(data));
+  return data;
 }
 ```
 
@@ -46,110 +57,108 @@ async function getRules(aud) {
 
 ```javascript
 async function nomosValidation(request, reply) {
-  const jwt = request.jwtClaims; // Already decoded by KrakenD/plugin
-  const path = request.url;      // e.g. /BR/accounts/5511999990000/balance
+  const jwt = request.jwtClaims; // Already decoded by KrakenD
   const aud = jwt.aud;
 
-  // Step 1: Get rules (only needs aud + proxy name)
-  const ruleSet = await getRules(aud);
-  if (!ruleSet) {
-    return reply.code(403).send({ error: 'App has no access to this proxy' });
+  // ─── Step 1: Get rules from Nomos/Redis ───
+  const ruleSet = await getRules(aud, jwt.iss, request.method);
+
+  // Nomos returned an error (403)
+  // This means: unknown audience OR this audience can't reach this proxy
+  if (ruleSet.nomosError) {
+    return reply.code(403).send({
+      error: ruleSet.error,
+      message: ruleSet.message
+    });
   }
 
-  // Step 2: Find matching rule by path pattern
-  const matchedRule = matchPath(path, ruleSet.rules);
+  // ─── Step 2: Find matching rule for this path ───
+  const matchedRule = matchPath(request.url, ruleSet.rules);
+
   if (!matchedRule) {
-    // No rule matches this path
+    // No rule covers this path → defaultPolicy decides
     if (ruleSet.defaultPolicy === 'deny') {
-      return reply.code(403).send({ error: 'No rule matches, default policy: deny' });
+      return reply.code(403).send({ error: 'NO_RULE_MATCH' });
     }
-    return; // defaultPolicy: allow → let it through
+    // defaultPolicy: "allow" → no validation needed, request passes through
+    return;
   }
 
-  // Step 3: Extract params from path
-  const params = extractParams(path, matchedRule.pathPattern);
-  // e.g. { country: "BR", msisdn: "5511999990000" }
+  // ─── Step 3: Rule matched → run validations ───
+  const params = extractParams(request.url, matchedRule.pathPattern);
+  const validations = matchedRule.validations.sort((a, b) => a.order - b.order);
 
-  // Step 4: Run Level 1 validations (country - abort early)
-  const level1 = matchedRule.validations.filter(v => v.level === 1);
-  for (const v of level1) {
-    const jwtValue = jp.value(jwt, v.jwtJsonPath);
+  for (const v of validations) {
     const pathValue = params[v.paramName];
 
-    if (v.validation === 'equals' && pathValue !== jwtValue) {
-      return reply.code(403).send({
-        error: `Level 1 failed: ${v.paramName}`,
-        detail: `Path has "${pathValue}" but JWT has "${jwtValue}"`
-      });
-    }
-  }
-
-  // Step 5: Run Level 2 validations (personification)
-  const level2 = matchedRule.validations.filter(v => v.level === 2);
-  for (const v of level2) {
-    let allowedValues = jp.query(jwt, v.jwtJsonPath); // e.g. ["555...", "556..."]
-
-    // Check if enrichment is needed
-    if (v.enrichment) {
-      const conditionValue = jp.value(jwt, v.enrichment.condition.jwtJsonPath);
-      if (conditionValue === v.enrichment.condition.equals) {
-        // Need to call /users/me for full data
-        allowedValues = await getEnrichedValues(jwt, v.enrichment);
+    if (v.validation === 'equals') {
+      const jwtValue = jp.value(jwt, v.jwtJsonPath);
+      if (pathValue.toLowerCase() !== String(jwtValue).toLowerCase()) {
+        return reply.code(403).send({
+          error: 'VALIDATION_FAILED',
+          level: v.level,
+          param: v.paramName,
+          detail: `path="${pathValue}" jwt="${jwtValue}"`
+        });
       }
     }
 
-    const pathValue = params[v.paramName];
+    if (v.validation === 'contains') {
+      let allowedValues = jp.query(jwt, v.jwtJsonPath).flat();
 
-    if (v.validation === 'contains' && !allowedValues.includes(pathValue)) {
-      return reply.code(403).send({
-        error: `Level 2 failed: ${v.paramName}`,
-        detail: `"${pathValue}" not found in allowed values`
-      });
+      // Enrichment: when JWT doesn't have full data
+      if (v.enrichment) {
+        const condValue = jp.value(jwt, v.enrichment.condition.jwtJsonPath);
+        if (condValue === v.enrichment.condition.equals) {
+          allowedValues = await getEnrichedValues(jwt, v.enrichment, request.idToken);
+        }
+      }
+
+      if (!allowedValues.includes(pathValue)) {
+        return reply.code(403).send({
+          error: 'VALIDATION_FAILED',
+          level: v.level,
+          param: v.paramName,
+          detail: `"${pathValue}" not in allowed values`
+        });
+      }
     }
   }
 
-  // ALL PASSED → continue to handler
+  // ─── ALL PASSED → request continues to handler ───
 }
 ```
 
-## Enrichment (call /users/me)
+## Enrichment (optional — when JWT is incomplete)
 
 ```javascript
-async function getEnrichedValues(jwt, enrichment) {
-  const userId = jwt.sub;
-  const cacheKey = `enrichment:${userId}:${enrichment.endpoint}`;
+async function getEnrichedValues(jwt, enrichment, idToken) {
+  const cacheKey = `enrichment:${jwt.sub}:${enrichment.endpoint}`;
 
-  // Check local cache
-  const cached = enrichmentCache.get(cacheKey);
-  if (cached && cached.expiry > Date.now()) {
-    return jp.query(cached.data, enrichment.responseJsonPath);
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return jp.query(JSON.parse(cached), enrichment.responseJsonPath);
   }
 
-  // Call /users/me with the id_token
-  const domain = jwt.iss; // domainFrom: "jwtIssuer"
-  const res = await axios.get(`${domain}${enrichment.endpoint}`, {
-    headers: { Authorization: `Bearer ${request.idToken}` }
+  const domain = jwt.iss;
+  const res = await fetch(`${domain}${enrichment.endpoint}`, {
+    headers: { Authorization: `Bearer ${idToken}` }
   });
 
-  // Cache the response
-  enrichmentCache.set(cacheKey, {
-    data: res.data,
-    expiry: Date.now() + (enrichment.cacheTtlSeconds * 1000)
-  });
+  if (!res.ok) throw new Error(`Enrichment failed: ${res.status}`);
 
-  // Extract allowed values using jsonPath
-  return jp.query(res.data, enrichment.responseJsonPath);
+  const data = await res.json();
+  await redis.setex(cacheKey, enrichment.cacheTtlSeconds, JSON.stringify(data));
+  return jp.query(data, enrichment.responseJsonPath);
 }
 ```
 
 ## Helper Functions
 
 ```javascript
-// Match incoming path against rule patterns
 function matchPath(path, rules) {
   for (const rule of rules) {
-    const regex = rule.pathPattern
-      .replace(/\{[^}]+\}/g, '([^/]+)'); // /{country} → /([^/]+)
+    const regex = rule.pathPattern.replace(/\{[^}]+\}/g, '([^/]+)');
     if (new RegExp(`^${regex}$`).test(path)) {
       return rule;
     }
@@ -157,7 +166,6 @@ function matchPath(path, rules) {
   return null;
 }
 
-// Extract named params from path using pattern
 function extractParams(path, pattern) {
   const paramNames = [...pattern.matchAll(/\{([^}]+)\}/g)].map(m => m[1]);
   const regex = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
@@ -168,42 +176,145 @@ function extractParams(path, pattern) {
 }
 ```
 
-## Fastify Route Usage
+---
+
+## Example: billing-service (4 routes, only 2 protected)
+
+### Nomos response for aud=client_id_123, iss=https://auth0.example.com, proxy=billing-service
+
+```json
+{
+  "proxy": "billing-service",
+  "appId": "mobile-app-co",
+  "idp": "auth0",
+  "defaultPolicy": "allow",
+  "rules": [
+    {
+      "id": "rule-001",
+      "pathPattern": "/{country}/billing/cc/{ccNumber}",
+      "validations": [
+        { "order": 1, "level": 1, "paramName": "country", "jwtJsonPath": "$.country", "validation": "equals" },
+        { "order": 2, "level": 2, "paramName": "ccNumber", "jwtJsonPath": "$.aL.cc", "validation": "contains" }
+      ]
+    },
+    {
+      "id": "rule-002",
+      "pathPattern": "/{country}/billing/mobile/{billingId}",
+      "validations": [
+        { "order": 1, "level": 1, "paramName": "country", "jwtJsonPath": "$.country", "validation": "equals" },
+        { "order": 2, "level": 2, "paramName": "billingId", "jwtJsonPath": "$.aL.msisdn", "validation": "contains" }
+      ]
+    }
+  ]
+}
+```
+
+### JWT
+
+```json
+{
+  "aud": "client_id_123",
+  "iss": "https://auth0.example.com",
+  "sub": "user-9876",
+  "country": "CO",
+  "aL": {
+    "cc": ["4432434", "5567890"],
+    "msisdn": ["573001234567"]
+  }
+}
+```
+
+### Fastify routes
 
 ```javascript
 const fastify = require('fastify')();
 
-// Apply Nomos validation as a hook
+// Apply Nomos validation globally
 fastify.addHook('preHandler', nomosValidation);
 
-// Your actual business logic — only reached if Nomos validation passes
-fastify.get('/:country/accounts/:msisdn/balance', async (request, reply) => {
-  const { country, msisdn } = request.params;
-  // ... fetch balance from database
-  return { msisdn, balance: 1500.00, currency: 'BRL' };
+// ─── Route 1: /co/billing/teams ───
+// No rule matches → defaultPolicy: "allow" → passes through, no validation
+fastify.get('/co/billing/teams', async (request, reply) => {
+  return { teams: ['team-a', 'team-b'] };
+});
+
+// ─── Route 2: /co/billing/reports ───
+// No rule matches → defaultPolicy: "allow" → passes through, no validation
+fastify.get('/co/billing/reports', async (request, reply) => {
+  return { reports: [] };
+});
+
+// ─── Route 3: /co/billing/cc/4432434 ───
+// Rule matches /{country}/billing/cc/{ccNumber}
+// Validates: country="co" equals $.country ("CO") → ✅
+// Validates: ccNumber="4432434" in $.aL.cc (["4432434","5567890"]) → ✅
+fastify.get('/:country/billing/cc/:ccNumber', async (request, reply) => {
+  return { ccNumber: request.params.ccNumber, balance: 1500.00 };
+});
+
+// ─── Route 4: /co/billing/mobile/573001234567 ───
+// Rule matches /{country}/billing/mobile/{billingId}
+// Validates: country="co" equals $.country ("CO") → ✅
+// Validates: billingId="573001234567" in $.aL.msisdn (["573001234567"]) → ✅
+fastify.get('/:country/billing/mobile/:billingId', async (request, reply) => {
+  return { billingId: request.params.billingId, status: 'active' };
 });
 
 fastify.listen({ port: 3000 });
 ```
 
-## Full Request Flow
+---
+
+## All possible outcomes
+
+### Nomos errors (before any validation)
+
+| Scenario | Nomos response | Fastify returns |
+|----------|---------------|-----------------|
+| Unknown audience (aud not registered) | `403 { "error": "UNKNOWN_AUDIENCE" }` | 403 |
+| Audience can't reach this proxy | `403 { "error": "PROXY_NOT_ALLOWED" }` | 403 |
+
+### Caller-side decisions (after Nomos returns 200)
+
+| Scenario | What happens | Fastify returns |
+|----------|-------------|-----------------|
+| Path has no rule + defaultPolicy: "allow" | No validation runs | Request passes through |
+| Path has no rule + defaultPolicy: "deny" | — | 403 NO_RULE_MATCH |
+| Rule matched, validation passes | All checks ✅ | Request passes through |
+| Rule matched, level 1 fails (wrong country) | Abort early | 403 VALIDATION_FAILED |
+| Rule matched, level 2 fails (not owner) | — | 403 VALIDATION_FAILED |
+| Enrichment service down | Can't verify | 503 ENRICHMENT_FAILED |
+
+---
+
+## Full request flow
 
 ```
-1. Client → KrakenD → validates JWT → forwards to API Service (Fastify)
-2. Fastify preHandler hook fires:
-   - JWT claims: { aud: "client_id_123", iss: "https://auth0.example.com", country: "BR", allAc: false, aL: ["5511999990000"] }
-   - Path: /BR/accounts/5511999990000/balance
-3. Get rules from Redis (or Nomos if cache miss):
-   GET /api/v1/rules?proxy=account-service&aud=client_id_123
-   → Nomos resolves: aud → App(mobile-app-br) + IDP(auth0) → proxy access ✅ → returns rules
-4. Match path → /{country}/accounts/{msisdn}/balance ✅
-5. Extract params → { country: "BR", msisdn: "5511999990000" }
-6. Level 1: country="BR" equals $.country="BR" → ✅
-7. Level 2: msisdn="5511999990000"
-   - Check $.allAc == false → YES, need enrichment
-   - Call https://auth0.example.com/users/me
-   - Extract $.accountDetail.subscriptions.subscriptionList[*].msisdn → ["5511999990000"]
-   - "5511999990000" in list → ✅
-8. ALL PASS → continue to route handler
-9. Return: { msisdn: "5511999990000", balance: 1500.00, currency: "BRL" }
+1. Client → KrakenD (validates JWT signature/expiry) → billing-service (Fastify)
+
+2. Fastify preHandler fires:
+   - jwt.aud = "client_id_123"
+   - jwt.iss = "https://auth0.example.com"
+   - request.url = "/co/billing/cc/4432434"
+
+3. getRules("client_id_123", "https://auth0.example.com", "GET"):
+   - Redis cache hit? → use cached rules
+   - Cache miss? → GET http://nomos:8080/api/v1/rules?proxy=billing-service&aud=client_id_123&iss=https%3A%2F%2Fauth0.example.com&method=GET
+     - Nomos resolves internally:
+       a) aud "client_id_123" → App(mobile-app-co) + IDP(auth0) ✅
+       b) App -[:ACCESS_PROXY {audience: "client_id_123"}]-> billing-service ✅
+       c) Returns rules for billing-service + IDP(auth0)
+     - If step a fails → 403 UNKNOWN_AUDIENCE (Nomos error)
+     - If step b fails → 403 PROXY_NOT_ALLOWED (Nomos error)
+
+4. matchPath("/co/billing/cc/4432434", rules):
+   - /{country}/billing/cc/{ccNumber} matches ✅
+   - Extract params: { country: "co", ccNumber: "4432434" }
+
+5. Run validations:
+   - order 1: params.country ("co") equals jp.value(jwt, "$.country") ("CO") → ✅
+   - order 2: params.ccNumber ("4432434") in jp.query(jwt, "$.aL.cc") (["4432434","5567890"]) → ✅
+
+6. ALL PASS → route handler executes
+   → { ccNumber: "4432434", balance: 1500.00 }
 ```
