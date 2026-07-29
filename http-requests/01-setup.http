@@ -1,0 +1,268 @@
+### Nomos Admin API - Full Setup Flow
+### Run these in order to populate the graph
+
+### ============================================================
+### 1. Create IDPs
+### ============================================================
+
+### Create auth0
+POST http://localhost:8080/api/v1/admin/idp
+Content-Type: application/json
+
+{
+  "name": "auth0",
+  "issuer": "https://auth0.example.com"
+}
+
+### Create keycloak
+POST http://localhost:8080/api/v1/admin/idp
+Content-Type: application/json
+
+{
+  "name": "keycloak",
+  "issuer": "https://keycloak.internal.com/realms/main"
+}
+
+### Create cognito
+POST http://localhost:8080/api/v1/admin/idp
+Content-Type: application/json
+
+{
+  "name": "cognito",
+  "issuer": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123"
+}
+
+### ============================================================
+### 2. Create Apps
+### ============================================================
+
+### Create mobile-app-br
+POST http://localhost:8080/api/v1/admin/app
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br"
+}
+
+### Create mobile-app-co
+POST http://localhost:8080/api/v1/admin/app
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-co"
+}
+
+### Create internal-backoffice
+POST http://localhost:8080/api/v1/admin/app
+Content-Type: application/json
+
+{
+  "appId": "internal-backoffice"
+}
+
+### ============================================================
+### 3. Link Apps to IDPs (USES_IDP with audience)
+### ============================================================
+
+### mobile-app-br → auth0
+POST http://localhost:8080/api/v1/admin/app/mobile-app-br/idp/auth0
+Content-Type: application/json
+
+{
+  "audience": "mobile-br-auth0-client"
+}
+
+### mobile-app-br → keycloak (same app, different IDP)
+POST http://localhost:8080/api/v1/admin/app/mobile-app-br/idp/keycloak
+Content-Type: application/json
+
+{
+  "audience": "mobile-br-kc-internal"
+}
+
+### mobile-app-co → auth0
+POST http://localhost:8080/api/v1/admin/app/mobile-app-co/idp/auth0
+Content-Type: application/json
+
+{
+  "audience": "mobile-co-auth0-client"
+}
+
+### internal-backoffice → keycloak
+POST http://localhost:8080/api/v1/admin/app/internal-backoffice/idp/keycloak
+Content-Type: application/json
+
+{
+  "audience": "backoffice-kc-client"
+}
+
+### ============================================================
+### 4. Create API Proxies
+### ============================================================
+
+### Create account-service (deny by default)
+POST http://localhost:8080/api/v1/admin/proxy
+Content-Type: application/json
+
+{
+  "name": "account-service",
+  "defaultPolicy": "deny"
+}
+
+### Create billing-service (allow by default)
+POST http://localhost:8080/api/v1/admin/proxy
+Content-Type: application/json
+
+{
+  "name": "billing-service",
+  "defaultPolicy": "allow"
+}
+
+### Create notification-service (allow by default)
+POST http://localhost:8080/api/v1/admin/proxy
+Content-Type: application/json
+
+{
+  "name": "notification-service",
+  "defaultPolicy": "allow"
+}
+
+### ============================================================
+### 5. Grant Proxy Access (ACCESS_PROXY scoped by audience)
+### ============================================================
+
+### mobile-app-br (auth0 audience) → account-service
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "mobile-br-auth0-client"
+}
+
+### mobile-app-br (auth0 audience) → billing-service
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br",
+  "proxyName": "billing-service",
+  "audience": "mobile-br-auth0-client"
+}
+
+### mobile-app-br (keycloak audience) → account-service only
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "mobile-br-kc-internal"
+}
+
+### mobile-app-co (auth0) → account-service
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-co",
+  "proxyName": "account-service",
+  "audience": "mobile-co-auth0-client"
+}
+
+### internal-backoffice (keycloak) → all proxies
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "internal-backoffice",
+  "proxyName": "account-service",
+  "audience": "backoffice-kc-client"
+}
+
+###
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "internal-backoffice",
+  "proxyName": "billing-service",
+  "audience": "backoffice-kc-client"
+}
+
+###
+POST http://localhost:8080/api/v1/admin/access
+Content-Type: application/json
+
+{
+  "appId": "internal-backoffice",
+  "proxyName": "notification-service",
+  "audience": "backoffice-kc-client"
+}
+
+### ============================================================
+### 6. Create Rules with Validations
+### ============================================================
+
+### Rule: account-service + auth0 (jsonPath for auth0 JWT structure)
+POST http://localhost:8080/api/v1/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "account-service",
+  "idpName": "auth0",
+  "pathPattern": "/{country}/accounts/{msisdn}/balance",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "jwtJsonPath": "$.country",
+      "validation": "equals"
+    },
+    {
+      "order": 2,
+      "level": 2,
+      "paramName": "msisdn",
+      "jwtJsonPath": "$.aL",
+      "validation": "contains",
+      "enrichment": {
+        "conditionJsonPath": "$.allAc",
+        "conditionEquals": false,
+        "endpoint": "/users/me",
+        "domainFrom": "jwtIssuer",
+        "responseJsonPath": "$.accountDetail.subscriptions[*].msisdn",
+        "cacheTtlSeconds": 300
+      }
+    }
+  ]
+}
+
+### Rule: account-service + keycloak (different jsonPaths!)
+POST http://localhost:8080/api/v1/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "account-service",
+  "idpName": "keycloak",
+  "pathPattern": "/{country}/accounts/{msisdn}/balance",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "jwtJsonPath": "$.realm_access.country",
+      "validation": "equals"
+    },
+    {
+      "order": 2,
+      "level": 2,
+      "paramName": "msisdn",
+      "jwtJsonPath": "$.realm_access.accounts",
+      "validation": "contains"
+    }
+  ]
+}

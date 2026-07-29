@@ -1,0 +1,103 @@
+### Nomos - Ad-hoc Rule Management
+### Use these to add rules to an existing graph
+
+### ============================================================
+### Add a new rule to billing-service for auth0
+### ============================================================
+
+### Rule: validate country + msisdn on billing invoices path
+POST http://localhost:8080/api/v1/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "billing-service",
+  "idpName": "auth0",
+  "pathPattern": "/{country}/billing/{msisdn}/invoices",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "jwtJsonPath": "$.country",
+      "validation": "equals"
+    },
+    {
+      "order": 2,
+      "level": 2,
+      "paramName": "msisdn",
+      "jwtJsonPath": "$.aL",
+      "validation": "contains"
+    }
+  ]
+}
+
+### ============================================================
+### Add a rule with enrichment to payment-gateway for keycloak
+### ============================================================
+
+### Rule: validate country + accountId, with enrichment when JWT is incomplete
+POST http://localhost:8080/api/v1/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "payment-gateway",
+  "idpName": "keycloak",
+  "pathPattern": "/{country}/payments/{accountId}/transfer",
+  "methods": ["POST"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "jwtJsonPath": "$.realm_access.country",
+      "validation": "equals"
+    },
+    {
+      "order": 2,
+      "level": 2,
+      "paramName": "accountId",
+      "jwtJsonPath": "$.realm_access.accounts",
+      "validation": "contains",
+      "enrichment": {
+        "conditionJsonPath": "$.realm_access.allAccounts",
+        "conditionEquals": false,
+        "endpoint": "/users/me/accounts",
+        "domainFrom": "jwtIssuer",
+        "responseJsonPath": "$.accounts[*].id",
+        "cacheTtlSeconds": 600
+      }
+    }
+  ]
+}
+
+### ============================================================
+### Add a simple rule (no enrichment) to notification-service for cognito
+### ============================================================
+
+### Rule: only validate country (level 1 only, no personification)
+POST http://localhost:8080/api/v1/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "notification-service",
+  "idpName": "cognito",
+  "pathPattern": "/{country}/notifications/send",
+  "methods": ["POST"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "jwtJsonPath": "$.custom:country",
+      "validation": "equals"
+    }
+  ]
+}
+
+### ============================================================
+### Verify: get rules for billing-service + auth0 audience
+### ============================================================
+
+### Should return the rule we just created
+GET http://localhost:8080/api/v1/rules?proxy=billing-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
