@@ -27,7 +27,7 @@ Client → KrakenD (validates JWT) → API Service Pod → Nomos (get rules) →
 ### Neo4j Graph
 
 ```
-(App {appId}) -[:HAS_PROXY]-> (APIProxy {name, defaultPolicy})
+(App {appId}) -[:ACCESS_PROXY]-> (APIProxy {name, defaultPolicy})
 (App {appId}) -[:USES_IDP {audience}]-> (IDP {name, issuer})
 (APIProxy) -[:HAS_RULE]-> (Rule {id, pathPattern})
 (Rule) -[:FOR_IDP]-> (IDP)
@@ -50,7 +50,7 @@ Client → KrakenD (validates JWT) → API Service Pod → Nomos (get rules) →
 
 | Relationship    | From       | To         | Purpose                                   |
 |-----------------|------------|------------|-------------------------------------------|
-| HAS_PROXY       | App        | APIProxy   | App groups multiple proxies               |
+| ACCESS_PROXY       | App        | APIProxy   | App groups multiple proxies               |
 | USES_IDP        | App        | IDP        | App accepts tokens from these IDPs        |
 | HAS_RULE        | APIProxy   | Rule       | Proxy has validation rules                |
 | FOR_IDP         | Rule       | IDP        | Rule applies for this specific IDP        |
@@ -62,7 +62,7 @@ Client → KrakenD (validates JWT) → API Service Pod → Nomos (get rules) →
 ### Query (runtime - what callers use)
 
 ```
-GET /api/v1/rules?proxy={name}&aud={audience}
+GET /api/v1/rules?proxy={name}&aud={audience}&method={HTTP_METHOD}
     → 200 + rules | 404 (no access / fail-early)
 ```
 
@@ -114,7 +114,7 @@ POST   /api/v1/import
 ## Query Response Example
 
 ```json
-// GET /api/v1/rules?proxy=account-service&aud=client_id_123
+// GET /api/v1/rules?proxy=account-service&aud=client_id_123&method=GET
 {
   "proxy": "account-service",
   "appId": "mobile-app-br",
@@ -159,7 +159,7 @@ JWT: { "aud": "client_id_123", "iss": "https://auth0.example.com", "country": "B
 1. Pod knows its name = "account-service"
 2. Reads aud → "client_id_123"
 3. Fetches rules from Redis (or Nomos if cache miss):
-   GET /api/v1/rules?proxy=account-service&aud=client_id_123
+   GET /api/v1/rules?proxy=account-service&aud=client_id_123&method=GET
    → Nomos resolves: aud → App(mobile-app-br) + IDP(auth0) → proxy access ✅ → returns rules
    - If 404 → DENY (unknown aud or app doesn't have access to this proxy)
 4. Match path against rules[].pathPattern
@@ -270,7 +270,7 @@ src/main/java/py/com/edge/nomos/
 
 ### Task 8: Query Endpoint (Core)
 
-- `GET /api/v1/rules?proxy=X&aud=Y`
+- `GET /api/v1/rules?proxy=X&aud=Y&method=GET`
 - Single optimized Cypher query (resolves aud → app + idp → proxy access → rules)
 - Fail-early: 404 if audience unknown or proxy not linked
 - ETag + Cache-Control headers

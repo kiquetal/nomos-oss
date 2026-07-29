@@ -67,14 +67,30 @@ What to do when the JWT doesn't have the full data (optional, attached to a Vali
 
 | Relationship   | From       | To         | Cardinality | Properties | Description                                |
 |----------------|------------|------------|-------------|------------|--------------------------------------------|
-| HAS_PROXY      | App        | APIProxy   | Many-to-Many|            | App can access these proxies               |
 | USES_IDP       | App        | IDP        | Many-to-Many| `audience` | App accepts tokens from this IDP. `audience` = the IDP's aud claim value |
+| ACCESS_PROXY      | App        | APIProxy   | Many-to-Many| `audience` | App can access this proxy **when presenting this specific audience**. Must match a registered `USES_IDP.audience` |
 | HAS_RULE       | APIProxy   | Rule       | One-to-Many |            | Proxy has these validation rules           |
 | FOR_IDP        | Rule       | IDP        | Many-to-One |            | Rule applies when JWT is from this IDP     |
 | HAS_VALIDATION | Rule       | Validation | One-to-Many |            | Rule contains these validations (ordered)  |
 | HAS_ENRICHMENT | Validation | Enrichment | One-to-One  |            | Validation optionally needs enrichment     |
 
-**Constraint**: The combination `(audience + idp)` must be unique — no two apps can claim the same audience from the same IDP.
+**Constraints**:
+- Multiple apps can share the same `audience + IDP` combination — the resolution finds any app with access to the requested proxy.
+- The `audience` on `ACCESS_PROXY` must reference an existing `USES_IDP.audience` for that same App — you can't grant proxy access to an audience that isn't registered.
+
+### Relationship semantics
+
+```
+USES_IDP:  "This app is reachable via this audience from this IDP"
+ACCESS_PROXY: "When a token arrives with THIS audience, it can reach THIS proxy"
+```
+
+This means the same App can have different proxy access depending on which audience (client credential) is used:
+
+| audience         | IDP     | Allowed proxies                     |
+|------------------|---------|-------------------------------------|
+| client_id_123    | auth0   | account-service, notification-service |
+| mobile-br-prod   | tigoidp | account-service, payment-gateway    |
 
 ---
 
@@ -83,8 +99,8 @@ What to do when the JWT doesn't have the full data (optional, attached to a Vali
 | Case | Condition | HTTP | Response |
 |------|-----------|------|----------|
 | Unknown audience | No App has a USES_IDP relationship with this `aud` value | 403 | `{ "error": "UNKNOWN_AUDIENCE", "message": "No app found for audience 'xxx'" }` |
-| Proxy not allowed | App exists but has no HAS_PROXY to this proxy | 403 | `{ "error": "PROXY_NOT_ALLOWED", "message": "App 'mobile-app-br' does not have access to proxy 'billing-service'" }` |
-| No rules found | App has access to proxy, but no rules defined for this IDP | 200 | `{ "proxy": "...", "defaultPolicy": "allow/deny", "rules": [] }` — caller uses defaultPolicy |
+| Proxy not allowed for this audience | App exists but has no ACCESS_PROXY with this `aud` to this proxy | 403 | `{ "error": "PROXY_NOT_ALLOWED", "message": "Audience 'client_id_123' does not have access to proxy 'billing-service'" }` |
+| No rules found | Audience has access to proxy, but no rules defined for this IDP | 200 | `{ "proxy": "...", "defaultPolicy": "allow/deny", "rules": [] }` — caller uses defaultPolicy |
 
 ### Cypher resolution order (fail-early):
 
@@ -93,9 +109,9 @@ What to do when the JWT doesn't have the full data (optional, attached to a Vali
 MATCH (a:App)-[rel:USES_IDP {audience: $aud}]->(i:IDP)
 // No result → 403 UNKNOWN_AUDIENCE
 
-// Step 2: Check proxy access
-MATCH (a)-[:HAS_PROXY]->(p:APIProxy {name: $proxy})
-// No result → 403 PROXY_NOT_ALLOWED
+// Step 2: Check proxy access FOR THIS SPECIFIC AUDIENCE
+MATCH (a)-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy {name: $proxy})
+// No result → 403 PROXY_NOT_ALLOWED (this audience cannot reach this proxy)
 
 // Step 3: Get rules (may be empty)
 OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule)-[:FOR_IDP]->(i)
@@ -103,6 +119,19 @@ OPTIONAL MATCH (r)-[:HAS_VALIDATION]->(v:Validation)
 OPTIONAL MATCH (v)-[:HAS_ENRICHMENT]->(e:Enrichment)
 // Empty rules → 200 with defaultPolicy, no rules
 // Rules found → 200 with full rule set
+```
+
+### Single optimized query:
+
+```cypher
+MATCH (a:App)-[:USES_IDP {audience: $aud}]->(i:IDP)
+MATCH (a)-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy {name: $proxy})
+OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule)-[:FOR_IDP]->(i)
+OPTIONAL MATCH (r)-[:HAS_VALIDATION]->(v:Validation)
+OPTIONAL MATCH (v)-[:HAS_ENRICHMENT]->(e:Enrichment)
+RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy, a.appId AS appId, i.name AS idp,
+       r, v, e
+ORDER BY v.order
 ```
 
 ---
@@ -114,15 +143,15 @@ Given: proxy=account-service, aud=client_id_123 (from JWT)
 Request: GET /BR/accounts/5511999990000/balance
 JWT: { "aud": "client_id_123", "iss": "https://auth0.example.com", "country": "BR", "allAc": false, "aL": ["5511999990000"] }
 
-Caller sends: GET /api/v1/rules?proxy=account-service&aud=client_id_123
+Caller sends: GET /api/v1/rules?proxy=account-service&aud=client_id_123&iss=https%3A%2F%2Fauth0.example.com&method=GET
 
 Nomos resolves internally:
   Step 1 (Resolve App + IDP): Find App via USES_IDP relationship where audience="client_id_123"
-          NOT FOUND → 404 (unknown audience)
+          NOT FOUND → 403 (unknown audience)
           FOUND → App(appId: "mobile-app-br"), IDP(name: "auth0") → continue
 
-  Step 2 (Proxy Access): Does App(appId=mobile-app-br) -[:HAS_PROXY]-> APIProxy(name=account-service) exist?
-          NO  → 404 (this app cannot access this proxy)
+  Step 2 (Proxy Access for this Audience): Does App -[:ACCESS_PROXY {audience: "client_id_123"}]-> APIProxy(name=account-service) exist?
+          NO  → 403 (this audience cannot access this proxy)
           YES → continue
 
   Step 3 (Get Rules): Find rules for proxy + IDP
@@ -154,7 +183,10 @@ Caller evaluates locally:
 
 ```
 (App: appId="mobile-app-br")
-    ├── [:HAS_PROXY] → (APIProxy: account-service, defaultPolicy: deny)
+    ├── [:USES_IDP {audience: "client_id_123"}] → (IDP: auth0, issuer: https://auth0.example.com)
+    ├── [:USES_IDP {audience: "mobile-br-prod"}] → (IDP: tigoidp, issuer: https://tigoidp.example.com)
+    │
+    ├── [:ACCESS_PROXY {audience: "client_id_123"}] → (APIProxy: account-service, defaultPolicy: deny)
     │                       └── [:HAS_RULE] → (Rule: /{country}/accounts/{msisdn}/balance)
     │                                             ├── [:FOR_IDP] → (IDP: auth0)
     │                                             ├── [:HAS_VALIDATION] → (Validation: order=1, level=1, paramName=country, $.country, equals)
@@ -162,15 +194,29 @@ Caller evaluates locally:
     │                                             └── [:HAS_VALIDATION] → (Validation: order=2, level=2, paramName=msisdn, $.aL, contains)
     │                                                                       ↑ Level 2: personification, only runs if Level 1 passes
     │                                                                         └── [:HAS_ENRICHMENT] → (Enrichment: $.allAc==false → /users/me)
-    ├── [:HAS_PROXY] → (APIProxy: billing-service, defaultPolicy: deny)
-    │                       └── [:HAS_RULE] → (Rule: /{country}/billing/mobile/{billingId})
-    │                                             ├── [:FOR_IDP] → (IDP: auth0)
-    │                                             ├── [:HAS_VALIDATION] → (Validation: order=1, level=1, paramName=country, $.country, equals)
-    │                                             └── [:HAS_VALIDATION] → (Validation: order=2, level=2, paramName=billingId, $.aL, contains)
-    │                                                                         └── [:HAS_ENRICHMENT] → (Enrichment: $.allAc==false → /users/me)
-    ├── [:USES_IDP {audience: "client_id_123"}] → (IDP: auth0, issuer: https://auth0.example.com)
-    └── [:USES_IDP {audience: "mobile-br-prod"}] → (IDP: tigoidp, issuer: https://tigoidp.example.com)
+    │
+    ├── [:ACCESS_PROXY {audience: "client_id_123"}] → (APIProxy: notification-service, defaultPolicy: allow)
+    │                       (no rules — defaultPolicy: allow means any path is permitted)
+    │
+    ├── [:ACCESS_PROXY {audience: "mobile-br-prod"}] → (APIProxy: account-service, defaultPolicy: deny)
+    │                       └── [:HAS_RULE] → (Rule: /{country}/accounts/{msisdn}/balance)
+    │                                             ├── [:FOR_IDP] → (IDP: tigoidp)
+    │                                             └── ... (same validation structure)
+    │
+    └── [:ACCESS_PROXY {audience: "mobile-br-prod"}] → (APIProxy: payment-gateway, defaultPolicy: deny)
+                            └── [:HAS_RULE] → (Rule: /{country}/billing/mobile/{billingId})
+                                                  ├── [:FOR_IDP] → (IDP: tigoidp)
+                                                  ├── [:HAS_VALIDATION] → (Validation: order=1, level=1, paramName=country, $.country, equals)
+                                                  └── [:HAS_VALIDATION] → (Validation: order=2, level=2, paramName=billingId, $.aL, contains)
+                                                                              └── [:HAS_ENRICHMENT] → (Enrichment: $.allAc==false → /users/me)
 ```
+
+### What this means:
+
+| Token arrives with aud= | Can reach | Cannot reach |
+|-------------------------|-----------|--------------|
+| client_id_123 (auth0)   | account-service, notification-service | payment-gateway |
+| mobile-br-prod (tigoidp)| account-service, payment-gateway | notification-service |
 
 ---
 
