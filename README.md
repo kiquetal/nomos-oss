@@ -4,6 +4,16 @@ This project uses Quarkus, the Supersonic Subatomic Java Framework.
 
 If you want to learn more about Quarkus, please visit its website: <https://quarkus.io/>.
 
+## 📚 Architecture & Integration Guides
+
+This repository contains comprehensive documentation detailing the design, architecture, integration options, and deployment strategies for Nomos:
+
+* **[Implementation Plan & Architecture](plans.md)**: Problem statement, high-level architecture diagram, REST API specification, and detailed validation logic.
+* **[Graph Model & Query API](graph-model.md)**: Visual representation of the Neo4j graph schema and runtime rule resolution flow.
+* **[Fastify Middleware Caller Example](caller-example.md)**: A complete, fast reference implementation using Fastify and Redis caching to fetch and evaluate Nomos rules.
+* **[Istio External Authorization Integration](steps-for-ext-authz-istio.md)**: Complete step-by-step instructions to integrate Nomos with Istio Service Mesh (`ext_authz`), comparing sidecar vs centralized approaches.
+* **[Neo4j Kubernetes Deployment Guide](neo4j-k8s/README.md)**: Helm-based deployment instructions, StatefulSet configuration, memory tuning, and CronJob-based S3 backups for Neo4j.
+
 ## Running the application in dev mode
 
 You can run your application in dev mode that enables live coding using:
