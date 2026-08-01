@@ -33,18 +33,18 @@ CREATE (app10:App {appId: 'chatbot-service'})
 // ============================================================
 // App → IDP (USES_IDP with audience)
 // ============================================================
-CREATE (app1)-[:USES_IDP {audience: 'mobile-br-auth0-client'}]->(auth0)
-CREATE (app1)-[:USES_IDP {audience: 'mobile-br-kc-internal'}]->(keycloak)
-CREATE (app2)-[:USES_IDP {audience: 'mobile-co-auth0-client'}]->(auth0)
-CREATE (app3)-[:USES_IDP {audience: 'mobile-ar-auth0-client'}]->(auth0)
-CREATE (app4)-[:USES_IDP {audience: 'web-br-kc-client'}]->(keycloak)
-CREATE (app4)-[:USES_IDP {audience: 'web-br-auth0-federated'}]->(auth0)
-CREATE (app5)-[:USES_IDP {audience: 'web-co-kc-client'}]->(keycloak)
-CREATE (app6)-[:USES_IDP {audience: 'acme-partner-client'}]->(cognito)
-CREATE (app7)-[:USES_IDP {audience: 'globex-partner-client'}]->(cognito)
-CREATE (app8)-[:USES_IDP {audience: 'backoffice-kc-client'}]->(keycloak)
-CREATE (app9)-[:USES_IDP {audience: 'iot-cognito-client'}]->(cognito)
-CREATE (app10)-[:USES_IDP {audience: 'chatbot-auth0-client'}]->(auth0)
+CREATE (app1)-[:USES_IDP {audience: 'mobile-br-auth0-client', label: 'Mobile BR Production'}]->(auth0)
+CREATE (app1)-[:USES_IDP {audience: 'mobile-br-kc-internal', label: 'Mobile BR Internal Testing'}]->(keycloak)
+CREATE (app2)-[:USES_IDP {audience: 'mobile-co-auth0-client', label: 'Mobile CO Production'}]->(auth0)
+CREATE (app3)-[:USES_IDP {audience: 'mobile-ar-auth0-client', label: 'Mobile AR Production'}]->(auth0)
+CREATE (app4)-[:USES_IDP {audience: 'web-br-kc-client', label: 'Web Portal BR'}]->(keycloak)
+CREATE (app4)-[:USES_IDP {audience: 'web-br-auth0-federated', label: 'Web Portal BR Federated Login'}]->(auth0)
+CREATE (app5)-[:USES_IDP {audience: 'web-co-kc-client', label: 'Web Portal CO'}]->(keycloak)
+CREATE (app6)-[:USES_IDP {audience: 'acme-partner-client', label: 'Partner ACME API'}]->(cognito)
+CREATE (app7)-[:USES_IDP {audience: 'globex-partner-client', label: 'Partner Globex API'}]->(cognito)
+CREATE (app8)-[:USES_IDP {audience: 'backoffice-kc-client', label: 'Internal Backoffice'}]->(keycloak)
+CREATE (app9)-[:USES_IDP {audience: 'iot-cognito-client', label: 'IoT Device Gateway'}]->(cognito)
+CREATE (app10)-[:USES_IDP {audience: 'chatbot-auth0-client', label: 'Chatbot Service'}]->(auth0)
 
 // ============================================================
 // API Proxies
@@ -119,12 +119,12 @@ CREATE (app10)-[:ACCESS_PROXY {audience: 'chatbot-auth0-client'}]->(notifSvc)
 // ============================================================
 
 // --- account-service + auth0 ---
-CREATE (r1:Rule {id: 'rule-acct-auth0-001', pathPattern: '/{country}/accounts/{msisdn}/balance'})
+CREATE (r1:Rule {id: 'rule-acct-auth0-001', pathPattern: '/{country}/accounts/{msisdn}/balance', methods: ['GET']})
 CREATE (accountSvc)-[:HAS_RULE]->(r1)
 CREATE (r1)-[:FOR_IDP]->(auth0)
 
-CREATE (v1:Validation {order: 1, level: 1, paramName: 'country', jwtJsonPath: '$.country', validation: 'equals'})
-CREATE (v2:Validation {order: 2, level: 2, paramName: 'msisdn', jwtJsonPath: '$.aL', validation: 'contains'})
+CREATE (v1:Validation {order: 1, level: 1, source: 'path', paramName: 'country', jwtJsonPath: '$.country', validation: 'equals'})
+CREATE (v2:Validation {order: 2, level: 2, source: 'path', paramName: 'msisdn', jwtJsonPath: '$.aL', validation: 'contains'})
 CREATE (r1)-[:HAS_VALIDATION]->(v1)
 CREATE (r1)-[:HAS_VALIDATION]->(v2)
 
@@ -139,32 +139,32 @@ CREATE (e1:Enrichment {
 CREATE (v2)-[:HAS_ENRICHMENT]->(e1)
 
 // --- account-service + keycloak ---
-CREATE (r2:Rule {id: 'rule-acct-kc-001', pathPattern: '/{country}/accounts/{msisdn}/balance'})
+CREATE (r2:Rule {id: 'rule-acct-kc-001', pathPattern: '/{country}/accounts/{msisdn}/balance', methods: ['GET']})
 CREATE (accountSvc)-[:HAS_RULE]->(r2)
 CREATE (r2)-[:FOR_IDP]->(keycloak)
 
-CREATE (v3:Validation {order: 1, level: 1, paramName: 'country', jwtJsonPath: '$.realm_access.country', validation: 'equals'})
-CREATE (v4:Validation {order: 2, level: 2, paramName: 'msisdn', jwtJsonPath: '$.realm_access.accounts', validation: 'contains'})
+CREATE (v3:Validation {order: 1, level: 1, source: 'path', paramName: 'country', jwtJsonPath: '$.realm_access.country', validation: 'equals'})
+CREATE (v4:Validation {order: 2, level: 2, source: 'path', paramName: 'msisdn', jwtJsonPath: '$.realm_access.accounts', validation: 'contains'})
 CREATE (r2)-[:HAS_VALIDATION]->(v3)
 CREATE (r2)-[:HAS_VALIDATION]->(v4)
 
 // --- account-service + cognito ---
-CREATE (r3:Rule {id: 'rule-acct-cognito-001', pathPattern: '/{country}/accounts/{msisdn}/balance'})
+CREATE (r3:Rule {id: 'rule-acct-cognito-001', pathPattern: '/{country}/accounts/{msisdn}/balance', methods: ['GET']})
 CREATE (accountSvc)-[:HAS_RULE]->(r3)
 CREATE (r3)-[:FOR_IDP]->(cognito)
 
-CREATE (v5:Validation {order: 1, level: 1, paramName: 'country', jwtJsonPath: '$.custom:country', validation: 'equals'})
-CREATE (v6:Validation {order: 2, level: 2, paramName: 'msisdn', jwtJsonPath: '$.custom:accounts', validation: 'contains'})
+CREATE (v5:Validation {order: 1, level: 1, source: 'path', paramName: 'country', jwtJsonPath: '$.custom:country', validation: 'equals'})
+CREATE (v6:Validation {order: 2, level: 2, source: 'path', paramName: 'msisdn', jwtJsonPath: '$.custom:accounts', validation: 'contains'})
 CREATE (r3)-[:HAS_VALIDATION]->(v5)
 CREATE (r3)-[:HAS_VALIDATION]->(v6)
 
 // --- billing-service + auth0 ---
-CREATE (r4:Rule {id: 'rule-bill-auth0-001', pathPattern: '/{country}/billing/{msisdn}/invoices'})
+CREATE (r4:Rule {id: 'rule-bill-auth0-001', pathPattern: '/{country}/billing/{msisdn}/invoices', methods: ['GET']})
 CREATE (billingSvc)-[:HAS_RULE]->(r4)
 CREATE (r4)-[:FOR_IDP]->(auth0)
 
-CREATE (v7:Validation {order: 1, level: 1, paramName: 'country', jwtJsonPath: '$.country', validation: 'equals'})
-CREATE (v8:Validation {order: 2, level: 2, paramName: 'msisdn', jwtJsonPath: '$.aL', validation: 'contains'})
+CREATE (v7:Validation {order: 1, level: 1, source: 'path', paramName: 'country', jwtJsonPath: '$.country', validation: 'equals'})
+CREATE (v8:Validation {order: 2, level: 2, source: 'path', paramName: 'msisdn', jwtJsonPath: '$.aL', validation: 'contains'})
 CREATE (r4)-[:HAS_VALIDATION]->(v7)
 CREATE (r4)-[:HAS_VALIDATION]->(v8)
 

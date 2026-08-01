@@ -10,9 +10,14 @@ MATCH (n) RETURN n;
 MATCH (a:App)-[r1:ACCESS_PROXY]->(p:APIProxy), (a)-[r2:USES_IDP]->(i:IDP)
 RETURN a, r1, p, r2, i;
 
-// --- List all audiences registered for an IDP ---
+// --- List all audiences registered for an IDP (with labels) ---
 MATCH (a:App)-[rel:USES_IDP]->(i:IDP {name: 'auth0'})
-RETURN a.appId AS appId, rel.audience AS audience, i.name AS idp;
+RETURN a.appId AS appId, rel.audience AS audience, rel.label AS label, i.name AS idp;
+
+// --- Search audiences by label ---
+MATCH (a:App)-[r:USES_IDP]->(i:IDP)
+WHERE toLower(r.label) CONTAINS toLower('Mobile')
+RETURN a.appId AS appId, r.audience AS audience, r.label AS label, i.name AS idp;
 
 // --- List proxy access per audience ---
 MATCH (a:App)-[hp:ACCESS_PROXY]->(p:APIProxy)
