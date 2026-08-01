@@ -1,0 +1,39 @@
+### Nomos - Update and Delete Operations
+### Run these AFTER 01-setup.http
+
+### ============================================================
+### Update Operations
+### ============================================================
+
+### Update IDP issuer URL
+PUT http://localhost:8080/nomos/v1/api/admin/idp/auth0
+Content-Type: application/json
+
+{
+  "issuer": "https://new-auth0.example.com"
+}
+
+### Update audience label
+PUT http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/idp/auth0?aud=mobile-br-auth0-client
+Content-Type: application/json
+
+{
+  "audience": "mobile-br-auth0-client",
+  "label": "Mobile BR Production v2"
+}
+
+### ============================================================
+### Delete Operations
+### ============================================================
+
+### Delete a specific audience (removes USES_IDP + all ACCESS_PROXY for that audience)
+DELETE http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/idp/keycloak?aud=mobile-br-kc-internal
+
+### Verify: mobile-app-br audiences should now only show auth0
+GET http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/audiences
+
+### Delete an entire app (removes App node + all relationships)
+DELETE http://localhost:8080/nomos/v1/api/admin/app/chatbot-service
+
+### Verify: chatbot-service should no longer appear in account-service apps
+GET http://localhost:8080/nomos/v1/api/admin/proxy/account-service/apps

@@ -6,51 +6,51 @@
 ### ============================================================
 
 ### Get all audiences for auth0
-GET http://localhost:8080/api/v1/admin/audiences/auth0
+GET http://localhost:8080/nomos/v1/api/admin/audiences/auth0
 
 ### Get all audiences for keycloak
-GET http://localhost:8080/api/v1/admin/audiences/keycloak
+GET http://localhost:8080/nomos/v1/api/admin/audiences/keycloak
 
 ### Get audiences for mobile-app-br (should show both auth0 and keycloak)
-GET http://localhost:8080/api/v1/admin/app/mobile-app-br/audiences
+GET http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/audiences
 
 ### Get audiences for internal-backoffice
-GET http://localhost:8080/api/v1/admin/app/internal-backoffice/audiences
+GET http://localhost:8080/nomos/v1/api/admin/app/internal-backoffice/audiences
 
 ### Get apps by audience + issuer
-GET http://localhost:8080/api/v1/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
+GET http://localhost:8080/nomos/v1/api/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 
 ### Get proxies accessible by mobile-app-br with auth0 audience
-GET http://localhost:8080/api/v1/admin/access/mobile-app-br?aud=mobile-br-auth0-client
+GET http://localhost:8080/nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client
 
 ### Get proxies accessible by mobile-app-br with keycloak audience (should be fewer)
-GET http://localhost:8080/api/v1/admin/access/mobile-app-br?aud=mobile-br-kc-internal
+GET http://localhost:8080/nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-kc-internal
 
 ### Get apps that can access account-service
-GET http://localhost:8080/api/v1/admin/proxy/account-service/apps
+GET http://localhost:8080/nomos/v1/api/admin/proxy/account-service/apps
 
 ### ============================================================
 ### Runtime Rule Resolution (what the caller middleware uses)
 ### ============================================================
 
 ### SUCCESS: mobile-app-br via auth0 → account-service (should return rules)
-GET http://localhost:8080/api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 
 ### SUCCESS: mobile-app-br via keycloak → account-service (different jsonPaths)
-GET http://localhost:8080/api/v1/rules?proxy=account-service&aud=mobile-br-kc-internal&iss=https%3A%2F%2Fkeycloak.internal.com%2Frealms%2Fmain&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=account-service&aud=mobile-br-kc-internal&iss=https%3A%2F%2Fkeycloak.internal.com%2Frealms%2Fmain
 
 ### SUCCESS: billing-service has no rules → returns defaultPolicy: "allow", rules: []
-GET http://localhost:8080/api/v1/rules?proxy=billing-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=billing-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 
 ### ============================================================
 ### Error Cases
 ### ============================================================
 
 ### ERROR: Unknown audience (not registered)
-GET http://localhost:8080/api/v1/rules?proxy=account-service&aud=unknown-audience-xyz&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=account-service&aud=unknown-audience-xyz&iss=https%3A%2F%2Fauth0.example.com
 
 ### ERROR: Audience exists but can't reach notification-service
-GET http://localhost:8080/api/v1/rules?proxy=notification-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=notification-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 
 ### ERROR: Wrong issuer for this audience
-GET http://localhost:8080/api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fwrong-issuer.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fwrong-issuer.com

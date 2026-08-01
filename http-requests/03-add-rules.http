@@ -6,7 +6,7 @@
 ### ============================================================
 
 ### Rule: validate country + msisdn on billing invoices path
-POST http://localhost:8080/api/v1/admin/rule
+POST http://localhost:8080/nomos/v1/api/admin/rule
 Content-Type: application/json
 
 {
@@ -19,6 +19,7 @@ Content-Type: application/json
       "order": 1,
       "level": 1,
       "paramName": "country",
+      "source": "path",
       "jwtJsonPath": "$.country",
       "validation": "equals"
     },
@@ -26,6 +27,7 @@ Content-Type: application/json
       "order": 2,
       "level": 2,
       "paramName": "msisdn",
+      "source": "path",
       "jwtJsonPath": "$.aL",
       "validation": "contains"
     }
@@ -37,7 +39,7 @@ Content-Type: application/json
 ### ============================================================
 
 ### Rule: validate country + accountId, with enrichment when JWT is incomplete
-POST http://localhost:8080/api/v1/admin/rule
+POST http://localhost:8080/nomos/v1/api/admin/rule
 Content-Type: application/json
 
 {
@@ -50,6 +52,7 @@ Content-Type: application/json
       "order": 1,
       "level": 1,
       "paramName": "country",
+      "source": "path",
       "jwtJsonPath": "$.realm_access.country",
       "validation": "equals"
     },
@@ -57,6 +60,7 @@ Content-Type: application/json
       "order": 2,
       "level": 2,
       "paramName": "accountId",
+      "source": "path",
       "jwtJsonPath": "$.realm_access.accounts",
       "validation": "contains",
       "enrichment": {
@@ -76,7 +80,7 @@ Content-Type: application/json
 ### ============================================================
 
 ### Rule: only validate country (level 1 only, no personification)
-POST http://localhost:8080/api/v1/admin/rule
+POST http://localhost:8080/nomos/v1/api/admin/rule
 Content-Type: application/json
 
 {
@@ -89,6 +93,7 @@ Content-Type: application/json
       "order": 1,
       "level": 1,
       "paramName": "country",
+      "source": "path",
       "jwtJsonPath": "$.custom:country",
       "validation": "equals"
     }
@@ -100,4 +105,4 @@ Content-Type: application/json
 ### ============================================================
 
 ### Should return the rule we just created
-GET http://localhost:8080/api/v1/rules?proxy=billing-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET http://localhost:8080/nomos/v1/api/rules?proxy=billing-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com

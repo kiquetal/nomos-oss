@@ -1,0 +1,155 @@
+### Nomos - Batch Rule Creation
+### Create multiple rules for the same proxy + IDP in one call
+
+### ============================================================
+### Batch rules for account-service + auth0
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/rules
+Content-Type: application/json
+
+{
+  "proxyName": "account-service",
+  "idpName": "auth0",
+  "rules": [
+    {
+      "pathPattern": "/{country}/accounts/{msisdn}/balance",
+      "methods": ["GET"],
+      "validations": [
+        {
+          "order": 1,
+          "level": 1,
+          "paramName": "country",
+          "source": "path",
+          "jwtJsonPath": "$.country",
+          "validation": "equals"
+        },
+        {
+          "order": 2,
+          "level": 2,
+          "paramName": "msisdn",
+          "source": "path",
+          "jwtJsonPath": "$.aL",
+          "validation": "contains"
+        }
+      ]
+    },
+    {
+      "pathPattern": "/{country}/accounts/{msisdn}/profile",
+      "methods": ["GET", "PUT"],
+      "validations": [
+        {
+          "order": 1,
+          "level": 1,
+          "paramName": "country",
+          "source": "path",
+          "jwtJsonPath": "$.country",
+          "validation": "equals"
+        },
+        {
+          "order": 2,
+          "level": 2,
+          "paramName": "msisdn",
+          "source": "path",
+          "jwtJsonPath": "$.aL",
+          "validation": "contains"
+        }
+      ]
+    },
+    {
+      "pathPattern": "/{country}/accounts/{msisdn}/transactions",
+      "methods": ["GET"],
+      "validations": [
+        {
+          "order": 1,
+          "level": 1,
+          "paramName": "country",
+          "source": "path",
+          "jwtJsonPath": "$.country",
+          "validation": "equals"
+        },
+        {
+          "order": 2,
+          "level": 2,
+          "paramName": "msisdn",
+          "source": "path",
+          "jwtJsonPath": "$.aL",
+          "validation": "contains",
+          "enrichment": {
+            "conditionJsonPath": "$.allAc",
+            "conditionEquals": false,
+            "endpoint": "/users/me",
+            "domainFrom": "jwtIssuer",
+            "responseJsonPath": "$.accountDetail.subscriptions[*].msisdn",
+            "cacheTtlSeconds": 300
+          }
+        }
+      ]
+    }
+  ]
+}
+
+### ============================================================
+### Batch rules for billing-service + auth0 (with query param validation)
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/rules
+Content-Type: application/json
+
+{
+  "proxyName": "billing-service",
+  "idpName": "auth0",
+  "rules": [
+    {
+      "pathPattern": "/billing/accounts",
+      "methods": ["GET"],
+      "validations": [
+        {
+          "order": 1,
+          "level": 2,
+          "paramName": "msisdn",
+          "source": "query",
+          "jwtJsonPath": "$.aL",
+          "validation": "contains"
+        },
+        {
+          "order": 2,
+          "level": 1,
+          "paramName": "type",
+          "source": "query",
+          "validation": "in",
+          "allowedValues": ["personal", "business"]
+        }
+      ]
+    },
+    {
+      "pathPattern": "/{country}/billing/{msisdn}/invoices",
+      "methods": ["GET"],
+      "validations": [
+        {
+          "order": 1,
+          "level": 1,
+          "paramName": "country",
+          "source": "path",
+          "jwtJsonPath": "$.country",
+          "validation": "equals"
+        },
+        {
+          "order": 2,
+          "level": 2,
+          "paramName": "msisdn",
+          "source": "path",
+          "jwtJsonPath": "$.aL",
+          "validation": "contains"
+        }
+      ]
+    }
+  ]
+}
+
+### ============================================================
+### Verify: check rules were created
+### ============================================================
+
+### Should return all 3 account-service rules
+GET http://localhost:8080/nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client&expand=rules

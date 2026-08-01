@@ -1,0 +1,142 @@
+### Nomos - Required Creation Order
+### Each step validates that the referenced entities exist.
+### Skipping a step returns a clear error (404 or 400).
+
+### ============================================================
+### Step 1: Create IDP (must exist before linking apps or creating rules)
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/idp
+Content-Type: application/json
+
+{
+  "name": "auth0",
+  "issuer": "https://auth0.example.com"
+}
+
+### ============================================================
+### Step 2: Create App
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/app
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br"
+}
+
+### ============================================================
+### Step 3: Register audience (requires Step 1 + Step 2)
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/idp/auth0
+Content-Type: application/json
+
+{
+  "audience": "mobile-br-auth0-client",
+  "label": "Mobile BR Production"
+}
+
+### ============================================================
+### Step 4: Create Proxy
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/proxy
+Content-Type: application/json
+
+{
+  "name": "account-service",
+  "defaultPolicy": "deny"
+}
+
+### ============================================================
+### Step 5: Grant access (requires Step 2 + Step 3 + Step 4)
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "mobile-br-auth0-client"
+}
+
+### ============================================================
+### Step 6: Create rules (requires Step 1 + Step 4)
+### ============================================================
+
+POST http://localhost:8080/nomos/v1/api/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "account-service",
+  "idpName": "auth0",
+  "pathPattern": "/{country}/accounts/{msisdn}/balance",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "country",
+      "source": "path",
+      "jwtJsonPath": "$.country",
+      "validation": "equals"
+    },
+    {
+      "order": 2,
+      "level": 2,
+      "paramName": "msisdn",
+      "source": "path",
+      "jwtJsonPath": "$.aL",
+      "validation": "contains"
+    }
+  ]
+}
+
+### ============================================================
+### Error cases - what happens if you skip steps
+### ============================================================
+
+### ERROR: Link app to non-existent IDP (skipped Step 1)
+POST http://localhost:8080/nomos/v1/api/admin/app/mobile-app-br/idp/fake-idp
+Content-Type: application/json
+
+{
+  "audience": "some-audience",
+  "label": "This will fail"
+}
+### → 404 { "error": "IDP_NOT_FOUND", "message": "IDP 'fake-idp' does not exist" }
+
+### ERROR: Grant access with unregistered audience (skipped Step 3)
+POST http://localhost:8080/nomos/v1/api/admin/access
+Content-Type: application/json
+
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "unregistered-audience"
+}
+### → 400 { "error": "AUDIENCE_NOT_REGISTERED", "message": "Audience 'unregistered-audience' is not registered for app 'mobile-app-br'" }
+
+### ERROR: Create rule for non-existent proxy (skipped Step 4)
+POST http://localhost:8080/nomos/v1/api/admin/rule
+Content-Type: application/json
+
+{
+  "proxyName": "fake-proxy",
+  "idpName": "auth0",
+  "pathPattern": "/test",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 1,
+      "paramName": "test",
+      "source": "path",
+      "jwtJsonPath": "$.test",
+      "validation": "equals"
+    }
+  ]
+}
+### → 404 { "error": "PROXY_NOT_FOUND", "message": "Proxy 'fake-proxy' does not exist" }
