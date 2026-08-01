@@ -58,7 +58,7 @@ public class AdminResource {
     public Response linkAppIdp(@PathParam("appId") String appId,
                                @PathParam("idpName") String idpName,
                                @Valid LinkAppIdpRequest req) {
-        adminService.linkAppIdp(appId, idpName, req.audience());
+        adminService.linkAppIdp(appId, idpName, req.audience(), req.label());
         return Response.status(Response.Status.CREATED)
                 .entity(Map.of("message", "App linked to IDP", "appId", appId,
                         "idp", idpName, "audience", req.audience()))
@@ -102,6 +102,78 @@ public class AdminResource {
                 .build();
     }
 
+    @POST
+    @Path("/rules")
+    @Operation(summary = "Create multiple rules for a proxy + IDP",
+            description = "Creates multiple Rule nodes in a single transaction, all linked to the same Proxy and IDP.")
+    @APIResponse(responseCode = "201", description = "Rules created")
+    public Response createRules(@Valid CreateRulesRequest req) {
+        java.util.List<String> ruleIds = adminService.createRules(req);
+        return Response.status(Response.Status.CREATED)
+                .entity(Map.of("message", "Rules created", "ruleIds", ruleIds,
+                        "proxy", req.proxyName(), "idp", req.idpName(), "count", ruleIds.size()))
+                .build();
+    }
+
+    // ─── Delete endpoints ───
+
+    @PUT
+    @Path("/idp/{idpName}")
+    @Operation(summary = "Update IDP issuer",
+            description = "Updates the issuer URL of an existing IDP.")
+    @APIResponse(responseCode = "200", description = "IDP updated")
+    public Response updateIdpIssuer(@PathParam("idpName") String idpName, @Valid UpdateIdpRequest req) {
+        adminService.updateIdpIssuer(idpName, req.issuer());
+        return Response.ok(Map.of("message", "IDP updated", "name", idpName, "issuer", req.issuer())).build();
+    }
+
+    @PUT
+    @Path("/app/{appId}/idp/{idpName}")
+    @Operation(summary = "Update audience label",
+            description = "Updates the label on a USES_IDP relationship.")
+    @APIResponse(responseCode = "200", description = "Label updated")
+    public Response updateAudienceLabel(
+            @PathParam("appId") String appId,
+            @PathParam("idpName") String idpName,
+            @QueryParam("aud") String audience,
+            @Valid LinkAppIdpRequest req) {
+        if (audience == null || audience.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Query parameter 'aud' is required").build();
+        }
+        adminService.updateAudienceLabel(appId, idpName, audience, req.label());
+        return Response.ok(Map.of("message", "Label updated", "appId", appId,
+                "idp", idpName, "audience", audience, "label", req.label() != null ? req.label() : "")).build();
+    }
+
+    @DELETE
+    @Path("/app/{appId}")
+    @Operation(summary = "Delete an App",
+            description = "Removes the App node and all its USES_IDP and ACCESS_PROXY relationships.")
+    @APIResponse(responseCode = "200", description = "App deleted")
+    public Response deleteApp(@PathParam("appId") String appId) {
+        adminService.deleteApp(appId);
+        return Response.ok(Map.of("message", "App deleted", "appId", appId)).build();
+    }
+
+    @DELETE
+    @Path("/app/{appId}/idp/{idpName}")
+    @Operation(summary = "Delete an audience",
+            description = "Removes a USES_IDP relationship and all ACCESS_PROXY relationships tied to this audience.")
+    @APIResponse(responseCode = "200", description = "Audience deleted")
+    public Response deleteAudience(
+            @PathParam("appId") String appId,
+            @PathParam("idpName") String idpName,
+            @QueryParam("aud") String audience) {
+        if (audience == null || audience.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Query parameter 'aud' is required").build();
+        }
+        adminService.deleteAudience(appId, idpName, audience);
+        return Response.ok(Map.of("message", "Audience deleted", "appId", appId,
+                "idp", idpName, "audience", audience)).build();
+    }
+
     // ─── Query endpoints (admin/debug) ───
 
     @GET
@@ -113,6 +185,19 @@ public class AdminResource {
                     schema = @Schema(implementation = AppAudienceResponse[].class)))
     public Response getAudiencesByApp(@PathParam("appId") String appId) {
         return Response.ok(ruleQueryService.getAudiencesByApp(appId)).build();
+    }
+
+    @GET
+    @Path("/audiences/search")
+    @Operation(summary = "Search audiences by label",
+            description = "Returns all audiences where the label contains the search term (case-insensitive).")
+    @APIResponse(responseCode = "200", description = "Matching audiences")
+    public Response searchAudiencesByLabel(@QueryParam("label") String label) {
+        if (label == null || label.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Query parameter 'label' is required").build();
+        }
+        return Response.ok(ruleQueryService.searchAudiencesByLabel(label)).build();
     }
 
     @GET
@@ -128,7 +213,7 @@ public class AdminResource {
     @Path("/apps")
     @Operation(summary = "List apps by audience and issuer",
             description = "Returns all App IDs linked to the given audience and issuer. " +
-                    "Example: GET /api/v1/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com → [\"mobile-app-br\"]")
+                    "Example: GET /nomos/v1/api/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com → [\"mobile-app-br\"]")
     @APIResponse(responseCode = "200", description = "List of app IDs",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = String[].class),
@@ -146,17 +231,22 @@ public class AdminResource {
     @GET
     @Path("/access/{appId}")
     @Operation(summary = "List proxies accessible by an app for an audience",
-            description = "Returns all APIProxy nodes the app can reach with this audience.")
+            description = "Returns all APIProxy nodes the app can reach with this audience. " +
+                    "Use expand=rules to include path patterns and methods for each proxy.")
     @APIResponse(responseCode = "200", description = "List of accessible proxies",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = ProxyAccessResponse[].class),
                     example = "[{\"proxy\": \"account-service\", \"defaultPolicy\": \"deny\"}, {\"proxy\": \"billing-service\", \"defaultPolicy\": \"allow\"}]"))
     public Response getProxiesByAppAndAudience(
             @PathParam("appId") String appId,
-            @QueryParam("aud") String aud) {
+            @QueryParam("aud") String aud,
+            @QueryParam("expand") String expand) {
         if (aud == null || aud.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("Query parameter 'aud' is required").build();
+        }
+        if ("rules".equals(expand)) {
+            return Response.ok(ruleQueryService.getProxiesByAppAndAudienceExpanded(appId, aud)).build();
         }
         return Response.ok(ruleQueryService.getProxiesByAppAndAudience(appId, aud)).build();
     }

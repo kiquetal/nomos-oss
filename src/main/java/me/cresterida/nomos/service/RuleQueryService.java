@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import me.cresterida.nomos.dto.RuleSetResponse;
 import me.cresterida.nomos.dto.AppAudienceResponse;
 import me.cresterida.nomos.dto.ProxyAccessResponse;
+import me.cresterida.nomos.dto.ProxyAccessExpandedResponse;
+import me.cresterida.nomos.dto.ProxyAppResponse;
 import me.cresterida.nomos.dto.RuleSetResponse.ConditionDto;
 import me.cresterida.nomos.dto.RuleSetResponse.EnrichmentDto;
 import me.cresterida.nomos.dto.RuleSetResponse.RuleDto;
@@ -57,7 +59,7 @@ public class RuleQueryService {
             return session.executeRead(tx -> {
                 Result result = tx.run(
                         "MATCH (a:App {appId: $appId})-[r:USES_IDP]->(i:IDP) " +
-                        "RETURN r.audience AS audience, i.name AS idp",
+                        "RETURN r.audience AS audience, i.name AS idp, r.label AS label",
                         Values.parameters("appId", appId)
                 );
                 List<AppAudienceResponse> audiences = new ArrayList<>();
@@ -65,7 +67,8 @@ public class RuleQueryService {
                     Record rec = result.next();
                     audiences.add(new AppAudienceResponse(
                             rec.get("audience").asString(),
-                            rec.get("idp").asString()
+                            rec.get("idp").asString(),
+                            rec.get("label").isNull() || rec.get("label").asString().isEmpty() ? null : rec.get("label").asString()
                     ));
                 }
                 return audiences;
@@ -73,21 +76,47 @@ public class RuleQueryService {
         }
     }
 
-    public List<Map<String, String>> getAppsByProxy(String proxyName) {
+    public List<AppAudienceResponse> searchAudiencesByLabel(String label) {
+        log.info("Searching audiences by label containing '{}'", label);
+        try (Session session = driver.session()) {
+            return session.executeRead(tx -> {
+                Result result = tx.run(
+                        "MATCH (a:App)-[r:USES_IDP]->(i:IDP) " +
+                        "WHERE toLower(r.label) CONTAINS toLower($label) " +
+                        "RETURN a.appId AS appId, r.audience AS audience, i.name AS idp, r.label AS label",
+                        Values.parameters("label", label)
+                );
+                List<AppAudienceResponse> audiences = new ArrayList<>();
+                while (result.hasNext()) {
+                    Record rec = result.next();
+                    audiences.add(new AppAudienceResponse(
+                            rec.get("audience").asString(),
+                            rec.get("idp").asString(),
+                            rec.get("label").isNull() ? null : rec.get("label").asString()
+                    ));
+                }
+                return audiences;
+            });
+        }
+    }
+
+    public List<ProxyAppResponse> getAppsByProxy(String proxyName) {
         log.info("Fetching apps for proxy='{}'", proxyName);
         try (Session session = driver.session()) {
             return session.executeRead(tx -> {
                 Result result = tx.run(
                         "MATCH (a:App)-[r:ACCESS_PROXY]->(p:APIProxy {name: $proxyName}) " +
-                        "RETURN a.appId AS appId, r.audience AS audience",
+                        "MATCH (a)-[:USES_IDP {audience: r.audience}]->(i:IDP) " +
+                        "RETURN a.appId AS appId, r.audience AS audience, i.name AS idp",
                         Values.parameters("proxyName", proxyName)
                 );
-                List<Map<String, String>> apps = new ArrayList<>();
+                List<ProxyAppResponse> apps = new ArrayList<>();
                 while (result.hasNext()) {
                     Record rec = result.next();
-                    apps.add(Map.of(
-                            "appId", rec.get("appId").asString(),
-                            "audience", rec.get("audience").asString()
+                    apps.add(new ProxyAppResponse(
+                            rec.get("appId").asString(),
+                            rec.get("audience").asString(),
+                            rec.get("idp").asString()
                     ));
                 }
                 return apps;
@@ -113,6 +142,41 @@ public class RuleQueryService {
                     ));
                 }
                 return proxies;
+            });
+        }
+    }
+
+    public List<ProxyAccessExpandedResponse> getProxiesByAppAndAudienceExpanded(String appId, String audience) {
+        log.info("Fetching proxies with rules for appId='{}', audience='{}'", appId, audience);
+        try (Session session = driver.session()) {
+            return session.executeRead(tx -> {
+                Result result = tx.run(
+                        "MATCH (a:App {appId: $appId})-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy) " +
+                        "OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule) " +
+                        "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy, " +
+                        "       r.pathPattern AS pathPattern, r.methods AS methods " +
+                        "ORDER BY p.name, r.pathPattern",
+                        Values.parameters("appId", appId, "aud", audience)
+                );
+
+                // Group by proxy
+                Map<String, ProxyAccessExpandedResponse> proxyMap = new LinkedHashMap<>();
+                while (result.hasNext()) {
+                    Record rec = result.next();
+                    String proxyName = rec.get("proxy").asString();
+                    String defaultPolicy = rec.get("defaultPolicy").asString();
+
+                    ProxyAccessExpandedResponse entry = proxyMap.computeIfAbsent(proxyName,
+                            k -> new ProxyAccessExpandedResponse(proxyName, defaultPolicy, new ArrayList<>()));
+
+                    if (!rec.get("pathPattern").isNull()) {
+                        List<String> methods = rec.get("methods").isNull() ?
+                                List.of() : rec.get("methods").asList(v -> v.asString());
+                        entry.rules().add(new ProxyAccessExpandedResponse.RuleSummary(
+                                rec.get("pathPattern").asString(), methods));
+                    }
+                }
+                return new ArrayList<>(proxyMap.values());
             });
         }
     }

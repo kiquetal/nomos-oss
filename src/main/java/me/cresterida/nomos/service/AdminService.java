@@ -3,6 +3,7 @@ package me.cresterida.nomos.service;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.Values;
 import org.slf4j.Logger;
@@ -12,7 +13,10 @@ import me.cresterida.nomos.dto.CreateAppRequest;
 import me.cresterida.nomos.dto.CreateIdpRequest;
 import me.cresterida.nomos.dto.CreateProxyRequest;
 import me.cresterida.nomos.dto.CreateRuleRequest;
+import me.cresterida.nomos.dto.CreateRulesRequest;
+import me.cresterida.nomos.exception.NomosException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -48,20 +52,89 @@ public class AdminService {
         }
     }
 
-    public void linkAppIdp(String appId, String idpName, String audience) {
-        log.info("Linking App '{}' to IDP '{}' with audience '{}'", appId, idpName, audience);
+    public void linkAppIdp(String appId, String idpName, String audience, String label) {
+        log.info("Linking App '{}' to IDP '{}' with audience '{}', label='{}'", appId, idpName, audience, label);
         try (Session session = driver.session()) {
-            session.executeWrite(tx -> tx.run(
+            session.executeWrite(tx -> {
+                Result appCheck = tx.run("MATCH (a:App {appId: $appId}) RETURN a", Values.parameters("appId", appId));
+                if (!appCheck.hasNext()) {
+                    throw new NomosException("APP_NOT_FOUND", "App '" + appId + "' does not exist");
+                }
+                Result idpCheck = tx.run("MATCH (i:IDP {name: $name}) RETURN i", Values.parameters("name", idpName));
+                if (!idpCheck.hasNext()) {
+                    throw new NomosException("IDP_NOT_FOUND", "IDP '" + idpName + "' does not exist");
+                }
+                tx.run(
                     "MATCH (a:App {appId: $appId}) " +
                     "MATCH (i:IDP {name: $idpName}) " +
-                    "MERGE (a)-[:USES_IDP {audience: $audience}]->(i) " +
+                    "MERGE (a)-[r:USES_IDP {audience: $audience}]->(i) " +
+                    "SET r.label = $label " +
                     "RETURN a",
                     Values.parameters(
                             "appId", appId,
                             "idpName", idpName,
-                            "audience", audience
+                            "audience", audience,
+                            "label", label != null ? label : ""
                     )
+                ).consume();
+                return null;
+            });
+        }
+    }
+
+    public void updateIdpIssuer(String idpName, String issuer) {
+        log.info("Updating IDP '{}' issuer to '{}'", idpName, issuer);
+        try (Session session = driver.session()) {
+            session.executeWrite(tx -> tx.run(
+                    "MATCH (i:IDP {name: $idpName}) " +
+                    "SET i.issuer = $issuer " +
+                    "RETURN i",
+                    Values.parameters("idpName", idpName, "issuer", issuer)
             ).consume());
+        }
+    }
+
+    public void updateAudienceLabel(String appId, String idpName, String audience, String label) {
+        log.info("Updating label for audience '{}' on App '{}' IDP '{}' to '{}'", audience, appId, idpName, label);
+        try (Session session = driver.session()) {
+            session.executeWrite(tx -> tx.run(
+                    "MATCH (a:App {appId: $appId})-[r:USES_IDP {audience: $aud}]->(i:IDP {name: $idpName}) " +
+                    "SET r.label = $label " +
+                    "RETURN r",
+                    Values.parameters("appId", appId, "aud", audience, "idpName", idpName, "label", label)
+            ).consume());
+        }
+    }
+
+    public void deleteApp(String appId) {
+        log.info("Deleting App: appId='{}'", appId);
+        try (Session session = driver.session()) {
+            session.executeWrite(tx -> tx.run(
+                    "MATCH (a:App {appId: $appId}) " +
+                    "DETACH DELETE a",
+                    Values.parameters("appId", appId)
+            ).consume());
+        }
+    }
+
+    public void deleteAudience(String appId, String idpName, String audience) {
+        log.info("Deleting audience '{}' for App '{}' on IDP '{}'", audience, appId, idpName);
+        try (Session session = driver.session()) {
+            session.executeWrite(tx -> {
+                // Delete USES_IDP relationship
+                tx.run(
+                        "MATCH (a:App {appId: $appId})-[r:USES_IDP {audience: $aud}]->(i:IDP {name: $idpName}) " +
+                        "DELETE r",
+                        Values.parameters("appId", appId, "aud", audience, "idpName", idpName)
+                ).consume();
+                // Delete all ACCESS_PROXY relationships with this audience
+                tx.run(
+                        "MATCH (a:App {appId: $appId})-[acc:ACCESS_PROXY {audience: $aud}]->() " +
+                        "DELETE acc",
+                        Values.parameters("appId", appId, "aud", audience)
+                ).consume();
+                return null;
+            });
         }
     }
 
@@ -82,7 +155,23 @@ public class AdminService {
         log.info("Creating ACCESS_PROXY: appId='{}', proxyName='{}', audience='{}'",
                 req.appId(), req.proxyName(), req.audience());
         try (Session session = driver.session()) {
-            session.executeWrite(tx -> tx.run(
+            session.executeWrite(tx -> {
+                Result appCheck = tx.run("MATCH (a:App {appId: $appId}) RETURN a", Values.parameters("appId", req.appId()));
+                if (!appCheck.hasNext()) {
+                    throw new NomosException("APP_NOT_FOUND", "App '" + req.appId() + "' does not exist");
+                }
+                Result proxyCheck = tx.run("MATCH (p:APIProxy {name: $name}) RETURN p", Values.parameters("name", req.proxyName()));
+                if (!proxyCheck.hasNext()) {
+                    throw new NomosException("PROXY_NOT_FOUND", "Proxy '" + req.proxyName() + "' does not exist");
+                }
+                Result audCheck = tx.run(
+                        "MATCH (a:App {appId: $appId})-[:USES_IDP {audience: $aud}]->() RETURN a",
+                        Values.parameters("appId", req.appId(), "aud", req.audience()));
+                if (!audCheck.hasNext()) {
+                    throw new NomosException("AUDIENCE_NOT_REGISTERED",
+                            "Audience '" + req.audience() + "' is not registered for app '" + req.appId() + "'");
+                }
+                tx.run(
                     "MATCH (a:App {appId: $appId}) " +
                     "MATCH (p:APIProxy {name: $proxyName}) " +
                     "MERGE (a)-[:ACCESS_PROXY {audience: $audience}]->(p) " +
@@ -92,7 +181,9 @@ public class AdminService {
                             "proxyName", req.proxyName(),
                             "audience", req.audience()
                     )
-            ).consume());
+                ).consume();
+                return null;
+            });
         }
     }
 
@@ -103,6 +194,15 @@ public class AdminService {
 
         try (Session session = driver.session()) {
             session.executeWrite(tx -> {
+                Result proxyCheck = tx.run("MATCH (p:APIProxy {name: $name}) RETURN p", Values.parameters("name", req.proxyName()));
+                if (!proxyCheck.hasNext()) {
+                    throw new NomosException("PROXY_NOT_FOUND", "Proxy '" + req.proxyName() + "' does not exist");
+                }
+                Result idpCheck = tx.run("MATCH (i:IDP {name: $name}) RETURN i", Values.parameters("name", req.idpName()));
+                if (!idpCheck.hasNext()) {
+                    throw new NomosException("IDP_NOT_FOUND", "IDP '" + req.idpName() + "' does not exist");
+                }
+
                 // Create Rule and link to Proxy + IDP
                 tx.run(
                         "MATCH (p:APIProxy {name: $proxyName}) " +
@@ -173,5 +273,96 @@ public class AdminService {
         }
 
         return ruleId;
+    }
+
+    public List<String> createRules(CreateRulesRequest req) {
+        log.info("Creating {} rules for proxy='{}', idp='{}'", req.rules().size(), req.proxyName(), req.idpName());
+        List<String> ruleIds = new ArrayList<>();
+
+        try (Session session = driver.session()) {
+            session.executeWrite(tx -> {
+                Result proxyCheck = tx.run("MATCH (p:APIProxy {name: $name}) RETURN p", Values.parameters("name", req.proxyName()));
+                if (!proxyCheck.hasNext()) {
+                    throw new NomosException("PROXY_NOT_FOUND", "Proxy '" + req.proxyName() + "' does not exist");
+                }
+                Result idpCheck = tx.run("MATCH (i:IDP {name: $name}) RETURN i", Values.parameters("name", req.idpName()));
+                if (!idpCheck.hasNext()) {
+                    throw new NomosException("IDP_NOT_FOUND", "IDP '" + req.idpName() + "' does not exist");
+                }
+
+                for (CreateRulesRequest.RuleItem rule : req.rules()) {
+                    String ruleId = UUID.randomUUID().toString();
+                    ruleIds.add(ruleId);
+
+                    // Create Rule and link to Proxy + IDP
+                    tx.run(
+                            "MATCH (p:APIProxy {name: $proxyName}) " +
+                            "MATCH (i:IDP {name: $idpName}) " +
+                            "CREATE (r:Rule {id: $ruleId, pathPattern: $pathPattern, methods: $methods}) " +
+                            "CREATE (p)-[:HAS_RULE]->(r) " +
+                            "CREATE (r)-[:FOR_IDP]->(i) " +
+                            "RETURN r",
+                            Values.parameters(
+                                    "proxyName", req.proxyName(),
+                                    "idpName", req.idpName(),
+                                    "ruleId", ruleId,
+                                    "pathPattern", rule.pathPattern(),
+                                    "methods", rule.methods()
+                            )
+                    ).consume();
+
+                    // Create Validations (and optional Enrichments)
+                    for (CreateRuleRequest.ValidationItem v : rule.validations()) {
+                        String validationId = UUID.randomUUID().toString();
+
+                        tx.run(
+                                "MATCH (r:Rule {id: $ruleId}) " +
+                                "CREATE (v:Validation {id: $validationId, order: $order, level: $level, " +
+                                "  paramName: $paramName, source: $source, jwtJsonPath: $jwtJsonPath, " +
+                                "  validation: $validation, allowedValues: $allowedValues}) " +
+                                "CREATE (r)-[:HAS_VALIDATION]->(v) " +
+                                "RETURN v",
+                                Values.parameters(
+                                        "ruleId", ruleId,
+                                        "validationId", validationId,
+                                        "order", v.order(),
+                                        "level", v.level(),
+                                        "paramName", v.paramName(),
+                                        "source", v.source(),
+                                        "jwtJsonPath", v.jwtJsonPath() != null ? v.jwtJsonPath() : "",
+                                        "validation", v.validation(),
+                                        "allowedValues", v.allowedValues() != null ? v.allowedValues() : List.of()
+                                )
+                        ).consume();
+
+                        // Create Enrichment if present
+                        if (v.enrichment() != null) {
+                            CreateRuleRequest.EnrichmentItem e = v.enrichment();
+                            tx.run(
+                                    "MATCH (v:Validation {id: $validationId}) " +
+                                    "CREATE (e:Enrichment {conditionJsonPath: $condJsonPath, " +
+                                    "  conditionEquals: $condEquals, endpoint: $endpoint, " +
+                                    "  domainFrom: $domainFrom, responseJsonPath: $respJsonPath, " +
+                                    "  cacheTtlSeconds: $cacheTtl}) " +
+                                    "CREATE (v)-[:HAS_ENRICHMENT]->(e) " +
+                                    "RETURN e",
+                                    Values.parameters(
+                                            "validationId", validationId,
+                                            "condJsonPath", e.conditionJsonPath(),
+                                            "condEquals", e.conditionEquals(),
+                                            "endpoint", e.endpoint(),
+                                            "domainFrom", e.domainFrom(),
+                                            "respJsonPath", e.responseJsonPath(),
+                                            "cacheTtl", e.cacheTtlSeconds()
+                                    )
+                            ).consume();
+                        }
+                    }
+                }
+                return null;
+            });
+        }
+
+        return ruleIds;
     }
 }
