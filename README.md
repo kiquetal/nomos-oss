@@ -443,3 +443,25 @@ GET /nomos/v1/api/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=htt
   - Community Edition requires stopping writes during dump for full consistency.
 - **High Availability:** Community Edition is single-instance only. Pod restarts cause brief downtime. For HA clustering, Enterprise Edition is required. For a rules engine with infrequent writes, single instance with fast restart is sufficient.
 - **Network:** Expose Neo4j bolt protocol (port 7687) as a ClusterIP Service. Only nomos pods need to reach it — no external ingress required.
+
+## Observability & Security Metrics
+
+Since `nomos-oss` serves as the centralized policy registry and is queried synchronously by the `nomos-middleware` on the API Gateway path, robust observability is critical to prevent latency overhead and detect exploit probes.
+
+### Top Priority Metrics
+
+To guarantee performance and catch anomalous lookups, `nomos-oss` implements the following top-priority metrics:
+
+| Metric Name | Type | Description | Dimensions | Alerting Condition |
+|-------------|------|-------------|------------|---------------------|
+| `nomos_rule_resolution_latency_seconds` | Histogram | Latency of the `GET /nomos/v1/api/rules` endpoint called by the middleware. | `proxy`, `result` (`success`, `error`, `not_found`) | p99 $> 5\text{ms}$ over 1 minute |
+| `nomos_rule_resolution_total` | Counter | Total volume of rule queries from the middleware. | `proxy`, `appId`, `status` | Alert on spike in `status="proxy_not_found"` or `status="unauthorized"` |
+| `nomos_neo4j_query_latency_seconds` | Histogram | Database traversal and rule graph loading time. | `query_type` (`resolve_rules`, `search_audiences`) | p95 $> 15\text{ms}$ over 3 minutes |
+| `nomos_local_cache_hit_ratio` | Gauge | Hit/miss efficiency ratio of the local L1 Caffeine cache. | `cache_name` | Hit ratio $< 85\%$ under high traffic |
+
+### Security Mitigation via Metrics
+
+Monitoring anomalous trends in these metrics can instantly identify and mitigate:
+1. **BOLA & ID Harvesting Probes:** High rates of `nomos_rule_resolution_total` with `status="unauthorized"` indicates client credentials attempting to access unauthorized proxy boundaries.
+2. **Shadow Service Exposure:** Spikes in `status="proxy_not_found"` suggest traffic is routed to services that do not have rule graphs registered in Nomos.
+3. **Internal Cache Eviction Floods:** Dropping `nomos_local_cache_hit_ratio` warns of cache thrashing which cascades into higher Neo4j CPU loads and database latency spikes.
