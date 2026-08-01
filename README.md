@@ -450,18 +450,28 @@ Since `nomos-oss` serves as the centralized policy registry and is queried synch
 
 ### Top Priority Metrics
 
-To guarantee performance and catch anomalous lookups, `nomos-oss` implements the following top-priority metrics:
+To guarantee performance and catch anomalous lookups while preventing metrics system degradation, `nomos-oss` implements the following top-priority metrics:
 
-| Metric Name | Type | Description | Dimensions | Alerting Condition |
+| Metric Name | Type | Description | Dimensions (Bounded) | Alerting Condition |
 |-------------|------|-------------|------------|---------------------|
 | `nomos_rule_resolution_latency_seconds` | Histogram | Latency of the `GET /nomos/v1/api/rules` endpoint called by the middleware. | `proxy`, `result` (`success`, `error`, `not_found`) | p99 $> 5\text{ms}$ over 1 minute |
-| `nomos_rule_resolution_total` | Counter | Total volume of rule queries from the middleware. | `proxy`, `appId`, `status` | Alert on spike in `status="proxy_not_found"` or `status="unauthorized"` |
+| `nomos_rule_resolution_total` | Counter | Total volume of rule queries from the middleware. | `proxy`, `status` (`success`, `unauthorized`, `proxy_not_found`, `error`) | Alert on spike in `status="proxy_not_found"` or `status="unauthorized"` |
 | `nomos_neo4j_query_latency_seconds` | Histogram | Database traversal and rule graph loading time. | `query_type` (`resolve_rules`, `search_audiences`) | p95 $> 15\text{ms}$ over 3 minutes |
 | `nomos_local_cache_hit_ratio` | Gauge | Hit/miss efficiency ratio of the local L1 Caffeine cache. | `cache_name` | Hit ratio $< 85\%$ under high traffic |
 
-### Security Mitigation via Metrics
+> [!WARNING]
+> **Preventing Metric Cardinality Explosion**
+>
+> Adding high-cardinality dimensions like `appId`, `audience`, or `client_ip` to Prometheus/OpenTelemetry metrics can easily generate millions of unique time series, crashing Prometheus (OOM) and causing major dashboards to fail. 
+> 
+> **Enterprise Best Practice:** 
+> 1. Keep metrics strictly **bounded** using low-cardinality labels (such as `proxy` and `status`).
+> 2. Offload high-cardinality details (`appId`, `audience`, `client_ip`, and `reason`) to **Structured JSON Logs** to be ingested by indexing engines like Loki, Elasticsearch, or Datadog Logs.
+> 3. Use **OpenTelemetry Trace / Exemplar IDs** in Grafana to jump directly from a metrics latency/failure spike to the exact log/trace containing the malicious audience.
 
-Monitoring anomalous trends in these metrics can instantly identify and mitigate:
-1. **BOLA & ID Harvesting Probes:** High rates of `nomos_rule_resolution_total` with `status="unauthorized"` indicates client credentials attempting to access unauthorized proxy boundaries.
+### Security Mitigation via Metrics & Logs
+
+Monitoring anomalous trends in these metrics combined with log correlation can instantly identify and mitigate:
+1. **BOLA & ID Harvesting Probes:** High rates of `nomos_rule_resolution_total` with `status="unauthorized"` indicates client credentials attempting to access unauthorized proxy boundaries. Cross-reference the timestamp with your JSON logs to extract the exact offending `audience` and block it at the gateway.
 2. **Shadow Service Exposure:** Spikes in `status="proxy_not_found"` suggest traffic is routed to services that do not have rule graphs registered in Nomos.
 3. **Internal Cache Eviction Floods:** Dropping `nomos_local_cache_hit_ratio` warns of cache thrashing which cascades into higher Neo4j CPU loads and database latency spikes.
