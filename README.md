@@ -4,16 +4,6 @@ This project uses Quarkus, the Supersonic Subatomic Java Framework.
 
 If you want to learn more about Quarkus, please visit its website: <https://quarkus.io/>.
 
-## 📚 Architecture & Integration Guides
-
-This repository contains comprehensive documentation detailing the design, architecture, integration options, and deployment strategies for Nomos:
-
-* **[Implementation Plan & Architecture](plans.md)**: Problem statement, high-level architecture diagram, REST API specification, and detailed validation logic.
-* **[Graph Model & Query API](graph-model.md)**: Visual representation of the Neo4j graph schema and runtime rule resolution flow.
-* **[Fastify Middleware Caller Example](caller-example.md)**: A complete, fast reference implementation using Fastify and Redis caching to fetch and evaluate Nomos rules.
-* **[Istio External Authorization Integration](steps-for-ext-authz-istio.md)**: Complete step-by-step instructions to integrate Nomos with Istio Service Mesh (`ext_authz`), comparing sidecar vs centralized approaches.
-* **[Neo4j Kubernetes Deployment Guide](neo4j-k8s/README.md)**: Helm-based deployment instructions, StatefulSet configuration, memory tuning, and CronJob-based S3 backups for Neo4j.
-
 ## Running the application in dev mode
 
 You can run your application in dev mode that enables live coding using:
@@ -79,7 +69,7 @@ graph LR
     IDP["IDP<br/><small>name, issuer</small>"]
     Proxy["APIProxy<br/><small>name, defaultPolicy</small>"]
     Rule["Rule<br/><small>id, pathPattern</small>"]
-    Val["Validation<br/><small>order, level, paramName,<br/>jwtJsonPath, validation</small>"]
+    Val["Validation<br/><small>order, level, paramName,<br/>source, jwtJsonPath, validation,<br/>allowedValues</small>"]
     Enr["Enrichment<br/><small>conditionJsonPath, conditionEquals,<br/>endpoint, domainFrom,<br/>responseJsonPath, cacheTtlSeconds</small>"]
 
     App -->|"USES_IDP<br/>{audience}"| IDP
@@ -104,23 +94,103 @@ graph TD
     E -->|Yes| G[200 — return rules + validations]
 ```
 
+> **Note:** Rules are defined per **proxy + IDP**, not per audience. Multiple audiences from the same IDP that can reach the same proxy will share the same rules. The audience controls *access* (can you reach the proxy?), the IDP controls *validation* (which jsonPaths apply). You define a rule once — all audiences that reach that proxy through that IDP use it.
+
 ## Admin API — Graph Management
 
-Base path: `/api/v1/admin`
+Base path: `/nomos/v1/api/admin`
 
 | # | Endpoint | Method | Body | Creates |
 |---|----------|--------|------|---------|
 | 1 | `/idp` | POST | `{ "name": "auth0", "issuer": "https://auth0.example.com" }` | IDP node |
 | 2 | `/app` | POST | `{ "appId": "mobile-app-br" }` | App node |
-| 3 | `/app/{appId}/idp/{idpName}` | POST | `{ "audience": "client_id_123" }` | USES_IDP relationship (App → IDP) |
+| 3 | `/app/{appId}/idp/{idpName}` | POST | `{ "audience": "client_id_123", "label": "Mobile BR Production" }` | USES_IDP relationship (App → IDP) |
 | 4 | `/proxy` | POST | `{ "name": "account-service", "defaultPolicy": "deny" }` | APIProxy node |
 | 5 | `/access` | POST | `{ "appId": "mobile-app-br", "proxyName": "account-service", "audience": "client_id_123" }` | ACCESS_PROXY relationship (App → Proxy) |
 | 6 | `/rule` | POST | See below | Rule + Validations + Enrichments |
+| 6b | `/rules` | POST | See below | Multiple Rules for same proxy+IDP (batch) |
+| 7 | `/app/{appId}` | DELETE | — | Removes App + all relationships |
+| 8 | `/app/{appId}/idp/{idpName}?aud={audience}` | DELETE | — | Removes audience + its proxy access |
+| 9 | `/idp/{idpName}` | PUT | `{ "issuer": "https://new-issuer.example.com" }` | Updates IDP issuer |
+| 10 | `/app/{appId}/idp/{idpName}?aud={audience}` | PUT | `{ "label": "New Label" }` | Updates audience label |
+
+> **Required creation order:**
+> ```
+> 1. POST /admin/idp                          ← create IDP first
+> 2. POST /admin/app                          ← create App
+> 3. POST /admin/app/{appId}/idp/{idpName}    ← register audience (requires 1 + 2)
+> 4. POST /admin/proxy                        ← create Proxy
+> 5. POST /admin/access                       ← grant access (requires 2 + 3 + 4)
+> 6. POST /admin/rule or /admin/rules         ← create rules (requires 1 + 4)
+> ```
+> Each step validates that the referenced entities exist. Skipping a step returns a clear error (404 or 400).
+
+### Access creation — why audience is required
+
+The same app can have different proxy access per audience. The `audience` on `ACCESS_PROXY` scopes which proxies are reachable with a specific token:
+
+```json
+POST /nomos/v1/api/admin/access
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "mobile-br-auth0-client"
+}
+```
+
+```json
+POST /nomos/v1/api/admin/access
+{
+  "appId": "mobile-app-br",
+  "proxyName": "billing-service",
+  "audience": "mobile-br-auth0-client"
+}
+```
+
+```json
+POST /nomos/v1/api/admin/access
+{
+  "appId": "mobile-app-br",
+  "proxyName": "account-service",
+  "audience": "mobile-br-kc-internal"
+}
+```
+
+Result: `mobile-app-br` with auth0 audience → reaches `account-service` + `billing-service`. Same app with keycloak audience → only reaches `account-service`. Different tokens, different access.
+
+### Access without rules — using defaultPolicy
+
+Not every proxy needs rules. If a proxy has `defaultPolicy: "allow"`, you can grant access without creating any rules. The middleware will resolve the proxy, see no rules, and use the defaultPolicy:
+
+```json
+POST /nomos/v1/api/admin/proxy
+{ "name": "notification-service", "defaultPolicy": "allow" }
+
+POST /nomos/v1/api/admin/access
+{ "appId": "mobile-app-br", "proxyName": "notification-service", "audience": "mobile-br-auth0-client" }
+```
+
+At runtime:
+```
+GET /nomos/v1/api/rules?proxy=notification-service&aud=mobile-br-auth0-client&iss=https://auth0.example.com
+```
+```json
+200 OK
+{
+  "proxy": "notification-service",
+  "appId": "mobile-app-br",
+  "idp": "auth0",
+  "defaultPolicy": "allow",
+  "rules": []
+}
+```
+
+Empty rules + `defaultPolicy: "allow"` → the middleware lets everything through. No path validation, no jsonPath checks. Useful for services that don't need personification control.
 
 ### Rule creation example
 
 ```json
-POST /api/v1/admin/rule
+POST /nomos/v1/api/admin/rule
 {
   "proxyName": "account-service",
   "idpName": "auth0",
@@ -131,6 +201,7 @@ POST /api/v1/admin/rule
       "order": 1,
       "level": 1,
       "paramName": "country",
+      "source": "path",
       "jwtJsonPath": "$.country",
       "validation": "equals"
     },
@@ -138,6 +209,7 @@ POST /api/v1/admin/rule
       "order": 2,
       "level": 2,
       "paramName": "msisdn",
+      "source": "path",
       "jwtJsonPath": "$.aL",
       "validation": "contains",
       "enrichment": {
@@ -145,7 +217,7 @@ POST /api/v1/admin/rule
         "conditionEquals": false,
         "endpoint": "/users/me",
         "domainFrom": "jwtIssuer",
-        "responseJsonPath": "$.accountDetail.subscriptions.subscriptionList[*].msisdn",
+        "responseJsonPath": "$.accountDetail.subscriptions[*].msisdn",
         "cacheTtlSeconds": 300
       }
     }
@@ -153,23 +225,54 @@ POST /api/v1/admin/rule
 }
 ```
 
+### Rule with query param validation
+
+```json
+POST /nomos/v1/api/admin/rule
+{
+  "proxyName": "billing-service",
+  "idpName": "auth0",
+  "pathPattern": "/billing/accounts",
+  "methods": ["GET"],
+  "validations": [
+    {
+      "order": 1,
+      "level": 2,
+      "paramName": "msisdn",
+      "source": "query",
+      "jwtJsonPath": "$.aL",
+      "validation": "contains"
+    },
+    {
+      "order": 2,
+      "level": 1,
+      "paramName": "type",
+      "source": "query",
+      "validation": "in",
+      "allowedValues": ["personal", "business"]
+    }
+  ]
+}
+```
+
 ## Query API — Runtime Rule Resolution
 
-Base path: `/api/v1/rules`
+Base path: `/nomos/v1/api/rules`
 
 | Endpoint | Method | Description | Used by |
 |----------|--------|-------------|---------|
-| `?proxy={name}&aud={audience}&iss={issuer}&method={HTTP_METHOD}` | GET | Full rule resolution for a proxy + audience + issuer + HTTP method | **Caller (middleware)** |
+| `?proxy={name}&aud={audience}&iss={issuer}` | GET | Full rule resolution for a proxy + audience + issuer | **Caller (middleware)** |
 
-> **The only endpoint the caller middleware needs is `GET /api/v1/rules?proxy=...&aud=...&iss=...&method=...`**
+> **The only endpoint the caller middleware needs is `GET /nomos/v1/api/rules?proxy=...&aud=...&iss=...`**
 
 ### Admin Query Endpoints
 
-Base path: `/api/v1/admin`
+Base path: `/nomos/v1/api/admin`
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/audiences/{idpName}` | GET | List all known audiences for an IDP |
+| `/audiences/search?label={text}` | GET | Search audiences by label (case-insensitive) |
 | `/app/{appId}/audiences` | GET | List all audiences for a specific app |
 | `/apps?aud={audience}&iss={issuer}` | GET | List apps associated with an audience and issuer |
 | `/access/{appId}?aud={audience}` | GET | List proxies accessible by an app for a given audience |
@@ -180,7 +283,7 @@ Base path: `/api/v1/admin`
 #### 1. Get audiences for an IDP
 
 ```
-GET /api/v1/admin/audiences/auth0
+GET /nomos/v1/api/admin/audiences/auth0
 ```
 ```json
 200 OK
@@ -190,7 +293,7 @@ GET /api/v1/admin/audiences/auth0
 #### 2. Get apps by audience + issuer
 
 ```
-GET /api/v1/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
+GET /nomos/v1/api/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 ```
 ```json
 200 OK
@@ -200,7 +303,7 @@ GET /api/v1/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.exampl
 #### 3. Get proxies accessible by an app + audience
 
 ```
-GET /api/v1/admin/access/mobile-app-br?aud=mobile-br-auth0-client
+GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client
 ```
 ```json
 200 OK
@@ -211,25 +314,68 @@ GET /api/v1/admin/access/mobile-app-br?aud=mobile-br-auth0-client
 ]
 ```
 
-#### 4. Get apps that can access a proxy
+#### 3b. With expand=rules (includes path patterns)
 
 ```
-GET /api/v1/admin/proxy/account-service/apps
+GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client&expand=rules
 ```
 ```json
 200 OK
 [
-  { "appId": "mobile-app-br", "audience": "mobile-br-auth0-client" },
-  { "appId": "mobile-app-br", "audience": "mobile-br-kc-internal" },
-  { "appId": "mobile-app-co", "audience": "mobile-co-auth0-client" },
-  { "appId": "internal-backoffice", "audience": "backoffice-kc-client" }
+  {
+    "proxy": "account-service",
+    "defaultPolicy": "deny",
+    "rules": [
+      { "pathPattern": "/{country}/accounts/{msisdn}/balance", "methods": ["GET"] }
+    ]
+  },
+  {
+    "proxy": "billing-service",
+    "defaultPolicy": "allow",
+    "rules": []
+  },
+  {
+    "proxy": "payment-gateway",
+    "defaultPolicy": "deny",
+    "rules": []
+  }
 ]
 ```
+
+#### 4. Get apps that can access a proxy
+
+```
+GET /nomos/v1/api/admin/proxy/account-service/apps
+```
+```json
+200 OK
+[
+  { "appId": "mobile-app-br", "audience": "mobile-br-auth0-client", "idp": "auth0" },
+  { "appId": "mobile-app-br", "audience": "mobile-br-kc-internal", "idp": "keycloak" },
+  { "appId": "mobile-app-co", "audience": "mobile-co-auth0-client", "idp": "auth0" },
+  { "appId": "internal-backoffice", "audience": "backoffice-kc-client", "idp": "keycloak" }
+]
+```
+
+> **Why audience + issuer?** The same audience string can exist across different IDPs.
+> For example, both auth0 and keycloak could issue tokens with `aud: "mobile-client"`.
+> Without the issuer, you can't tell them apart:
+>
+> ```
+> GET /nomos/v1/api/admin/apps?aud=mobile-client&iss=https://auth0.example.com
+> → ["mobile-app-br"]
+>
+> GET /nomos/v1/api/admin/apps?aud=mobile-client&iss=https://keycloak.internal.com/realms/main
+> → ["internal-backoffice"]
+> ```
+>
+> Same audience, different issuers → different apps, different proxy access.
+> The `iss` (issuer from the JWT) is the discriminator that avoids name collision.
 
 #### 5. Full rule resolution (main runtime call)
 
 ```
-GET /api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com&method=GET
+GET /nomos/v1/api/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.example.com
 ```
 ```json
 200 OK
@@ -248,6 +394,7 @@ GET /api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%
           "order": 1,
           "level": 1,
           "paramName": "country",
+          "source": "path",
           "jwtJsonPath": "$.country",
           "validation": "equals",
           "enrichment": null
@@ -256,6 +403,7 @@ GET /api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%
           "order": 2,
           "level": 2,
           "paramName": "msisdn",
+          "source": "path",
           "jwtJsonPath": "$.aL",
           "validation": "contains",
           "enrichment": {
@@ -279,6 +427,10 @@ GET /api/v1/rules?proxy=account-service&aud=mobile-br-auth0-client&iss=https%3A%
 | Unknown audience (aud+iss not registered) | 403 | `{ "error": "UNKNOWN_AUDIENCE", "message": "Audience 'xxx' is not registered" }` |
 | Audience exists but can't reach this proxy | 403 | `{ "error": "PROXY_NOT_ALLOWED", "message": "Audience 'xxx' does not have access to proxy 'yyy'" }` |
 | Rules resolved but none defined for this IDP | 200 | `{ ..., "defaultPolicy": "deny", "rules": [] }` — caller uses defaultPolicy |
+| App not found (on link, access, or delete) | 404 | `{ "error": "APP_NOT_FOUND", "message": "App 'xxx' does not exist" }` |
+| IDP not found (on link or rule creation) | 404 | `{ "error": "IDP_NOT_FOUND", "message": "IDP 'xxx' does not exist" }` |
+| Proxy not found (on access or rule creation) | 404 | `{ "error": "PROXY_NOT_FOUND", "message": "Proxy 'xxx' does not exist" }` |
+| Audience not registered for app (on access creation) | 400 | `{ "error": "AUDIENCE_NOT_REGISTERED", "message": "Audience 'xxx' is not registered for app 'yyy'" }` |
 
 ## Neo4j in Kubernetes — Considerations
 

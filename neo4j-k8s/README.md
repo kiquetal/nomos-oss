@@ -52,12 +52,36 @@ Then open http://localhost:7474 — login with `neo4j` / `nomos-secret`.
 
 ## Connection from Nomos (Quarkus)
 
+Apply the credentials secret first:
+
+```bash
+kubectl apply -f neo4j-k8s/neo4j-secret.yaml
+```
+
 In `application.properties`:
 
 ```properties
 quarkus.neo4j.uri=bolt://neo4j.nomos.svc.cluster.local:7687
 quarkus.neo4j.authentication.username=neo4j
 quarkus.neo4j.authentication.password=nomos-secret
+```
+
+In the Nomos deployment, reference the secret:
+
+```yaml
+env:
+  - name: NEO4J_URI
+    value: bolt://neo4j.nomos.svc.cluster.local:7687
+  - name: NEO4J_USER
+    valueFrom:
+      secretKeyRef:
+        name: neo4j-credentials
+        key: username
+  - name: NEO4J_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: neo4j-credentials
+        key: password
 ```
 
 ## Seed the graph
