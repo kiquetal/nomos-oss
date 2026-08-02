@@ -34,6 +34,7 @@ Content-Type: application/json
 
 {
   "audience": "mobile-br-auth0-client",
+  "idpName": "auth0",
   "label": "Mobile BR Production"
 }
 
@@ -59,7 +60,8 @@ Content-Type: application/json
 {
   "appId": "mobile-app-br",
   "proxyName": "account-service",
-  "audience": "mobile-br-auth0-client"
+  "audience": "mobile-br-auth0-client",
+  "idpName": "auth0"
 }
 
 ### ============================================================
@@ -115,7 +117,8 @@ Content-Type: application/json
 {
   "appId": "mobile-app-br",
   "proxyName": "account-service",
-  "audience": "unregistered-audience"
+  "audience": "unregistered-audience",
+  "idpName": "auth0"
 }
 ### → 400 { "error": "AUDIENCE_NOT_REGISTERED", "message": "Audience 'unregistered-audience' is not registered for app 'mobile-app-br'" }
 
