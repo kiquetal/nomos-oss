@@ -1,0 +1,125 @@
+{
+  "idps": [
+    { "name": "auth0", "issuer": "https://auth0.example.com" },
+    { "name": "keycloak", "issuer": "https://keycloak.internal.com/realms/main" },
+    { "name": "cognito", "issuer": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123" }
+  ],
+  "apps": [
+    { "appId": "mobile-app-br" },
+    { "appId": "mobile-app-co" },
+    { "appId": "mobile-app-ar" },
+    { "appId": "web-portal-br" },
+    { "appId": "web-portal-co" },
+    { "appId": "partner-api-acme" },
+    { "appId": "partner-api-globex" },
+    { "appId": "internal-backoffice" },
+    { "appId": "iot-device-gateway" },
+    { "appId": "chatbot-service" }
+  ],
+  "links": [
+    { "appId": "mobile-app-br", "idpName": "auth0", "audience": "mobile-br-auth0-client", "label": "Mobile BR Production" },
+    { "appId": "mobile-app-br", "idpName": "keycloak", "audience": "mobile-br-kc-internal", "label": "Mobile BR Internal Testing" },
+    { "appId": "mobile-app-co", "idpName": "auth0", "audience": "mobile-co-auth0-client", "label": "Mobile CO Production" },
+    { "appId": "mobile-app-ar", "idpName": "auth0", "audience": "mobile-ar-auth0-client", "label": "Mobile AR Production" },
+    { "appId": "web-portal-br", "idpName": "keycloak", "audience": "web-br-kc-client", "label": "Web Portal BR" },
+    { "appId": "web-portal-br", "idpName": "auth0", "audience": "web-br-auth0-federated", "label": "Web Portal BR Federated Login" },
+    { "appId": "web-portal-co", "idpName": "keycloak", "audience": "web-co-kc-client", "label": "Web Portal CO" },
+    { "appId": "partner-api-acme", "idpName": "cognito", "audience": "acme-partner-client", "label": "Partner ACME API" },
+    { "appId": "partner-api-globex", "idpName": "cognito", "audience": "globex-partner-client", "label": "Partner Globex API" },
+    { "appId": "internal-backoffice", "idpName": "keycloak", "audience": "backoffice-kc-client", "label": "Internal Backoffice" },
+    { "appId": "iot-device-gateway", "idpName": "cognito", "audience": "iot-cognito-client", "label": "IoT Device Gateway" },
+    { "appId": "chatbot-service", "idpName": "auth0", "audience": "chatbot-auth0-client", "label": "Chatbot Service" }
+  ],
+  "proxies": [
+    { "name": "account-service", "defaultPolicy": "deny" },
+    { "name": "billing-service", "defaultPolicy": "allow" },
+    { "name": "catalog-service", "defaultPolicy": "allow" },
+    { "name": "payment-gateway", "defaultPolicy": "deny" },
+    { "name": "notification-service", "defaultPolicy": "allow" },
+    { "name": "report-service", "defaultPolicy": "deny" }
+  ],
+  "access": [
+    { "appId": "mobile-app-br", "proxyName": "account-service", "audience": "mobile-br-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-br", "proxyName": "billing-service", "audience": "mobile-br-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-br", "proxyName": "payment-gateway", "audience": "mobile-br-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-br", "proxyName": "account-service", "audience": "mobile-br-kc-internal", "idpName": "keycloak" },
+    { "appId": "mobile-app-br", "proxyName": "report-service", "audience": "mobile-br-kc-internal", "idpName": "keycloak" },
+    { "appId": "mobile-app-co", "proxyName": "account-service", "audience": "mobile-co-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-co", "proxyName": "billing-service", "audience": "mobile-co-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-co", "proxyName": "catalog-service", "audience": "mobile-co-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-ar", "proxyName": "account-service", "audience": "mobile-ar-auth0-client", "idpName": "auth0" },
+    { "appId": "mobile-app-ar", "proxyName": "catalog-service", "audience": "mobile-ar-auth0-client", "idpName": "auth0" },
+    { "appId": "web-portal-br", "proxyName": "account-service", "audience": "web-br-kc-client", "idpName": "keycloak" },
+    { "appId": "web-portal-br", "proxyName": "billing-service", "audience": "web-br-kc-client", "idpName": "keycloak" },
+    { "appId": "web-portal-br", "proxyName": "report-service", "audience": "web-br-kc-client", "idpName": "keycloak" },
+    { "appId": "web-portal-br", "proxyName": "notification-service", "audience": "web-br-kc-client", "idpName": "keycloak" },
+    { "appId": "web-portal-br", "proxyName": "catalog-service", "audience": "web-br-auth0-federated", "idpName": "auth0" },
+    { "appId": "web-portal-co", "proxyName": "account-service", "audience": "web-co-kc-client", "idpName": "keycloak" },
+    { "appId": "web-portal-co", "proxyName": "billing-service", "audience": "web-co-kc-client", "idpName": "keycloak" },
+    { "appId": "partner-api-acme", "proxyName": "account-service", "audience": "acme-partner-client", "idpName": "cognito" },
+    { "appId": "partner-api-acme", "proxyName": "billing-service", "audience": "acme-partner-client", "idpName": "cognito" },
+    { "appId": "partner-api-globex", "proxyName": "catalog-service", "audience": "globex-partner-client", "idpName": "cognito" },
+    { "appId": "partner-api-globex", "proxyName": "notification-service", "audience": "globex-partner-client", "idpName": "cognito" },
+    { "appId": "internal-backoffice", "proxyName": "account-service", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "internal-backoffice", "proxyName": "billing-service", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "internal-backoffice", "proxyName": "catalog-service", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "internal-backoffice", "proxyName": "payment-gateway", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "internal-backoffice", "proxyName": "notification-service", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "internal-backoffice", "proxyName": "report-service", "audience": "backoffice-kc-client", "idpName": "keycloak" },
+    { "appId": "iot-device-gateway", "proxyName": "notification-service", "audience": "iot-cognito-client", "idpName": "cognito" },
+    { "appId": "chatbot-service", "proxyName": "account-service", "audience": "chatbot-auth0-client", "idpName": "auth0" },
+    { "appId": "chatbot-service", "proxyName": "notification-service", "audience": "chatbot-auth0-client", "idpName": "auth0" }
+  ],
+  "rules": [
+    {
+      "proxyName": "account-service",
+      "idpName": "auth0",
+      "rules": [
+        {
+          "pathPattern": "/{country}/accounts/{msisdn}/balance",
+          "methods": ["GET"],
+          "validations": [
+            { "order": 1, "level": 1, "paramName": "country", "source": "path", "jwtJsonPath": "$.country", "validation": "equals" },
+            { "order": 2, "level": 2, "paramName": "msisdn", "source": "path", "jwtJsonPath": "$.aL", "validation": "contains", "enrichment": { "conditionJsonPath": "$.allAc", "conditionEquals": false, "endpoint": "/users/me", "domainFrom": "jwtIssuer", "responseJsonPath": "$.accountDetail.subscriptions[*].msisdn", "cacheTtlSeconds": 300 } }
+          ]
+        }
+      ]
+    },
+    {
+      "proxyName": "account-service",
+      "idpName": "keycloak",
+      "rules": [
+        {
+          "pathPattern": "/{country}/accounts/{msisdn}/balance",
+          "methods": ["GET"],
+          "validations": [
+            { "order": 1, "level": 1, "paramName": "country", "source": "path", "jwtJsonPath": "$.realm_access.country", "validation": "equals" },
+            { "order": 2, "level": 2, "paramName": "msisdn", "source": "path", "jwtJsonPath": "$.realm_access.accounts", "validation": "contains" }
+          ]
+        }
+      ]
+    },
+    {
+      "proxyName": "billing-service",
+      "idpName": "auth0",
+      "rules": [
+        {
+          "pathPattern": "/{country}/billing/{msisdn}/invoices",
+          "methods": ["GET"],
+          "validations": [
+            { "order": 1, "level": 1, "paramName": "country", "source": "path", "jwtJsonPath": "$.country", "validation": "equals" },
+            { "order": 2, "level": 2, "paramName": "msisdn", "source": "path", "jwtJsonPath": "$.aL", "validation": "contains" }
+          ]
+        },
+        {
+          "pathPattern": "/billing/accounts",
+          "methods": ["GET"],
+          "validations": [
+            { "order": 1, "level": 2, "paramName": "msisdn", "source": "query", "jwtJsonPath": "$.aL", "validation": "contains" },
+            { "order": 2, "level": 1, "paramName": "type", "source": "query", "validation": "in", "allowedValues": ["personal", "business"] }
+          ]
+        }
+      ]
+    }
+  ]
+}
