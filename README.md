@@ -73,7 +73,7 @@ graph LR
     Enr["Enrichment<br/><small>conditionJsonPath, conditionEquals,<br/>endpoint, domainFrom,<br/>responseJsonPath, cacheTtlSeconds</small>"]
 
     App -->|"USES_IDP<br/>{audience}"| IDP
-    App -->|"ACCESS_PROXY<br/>{audience}"| Proxy
+    App -->|"ACCESS_PROXY<br/>{audience, idp}"| Proxy
     Proxy -->|"HAS_RULE"| Rule
     Rule -->|"FOR_IDP"| IDP
     Rule -->|"HAS_VALIDATION"| Val
@@ -106,7 +106,7 @@ Base path: `/nomos/v1/api/admin`
 | 2 | `/app` | POST | `{ "appId": "mobile-app-br" }` | App node |
 | 3 | `/app/{appId}/idp/{idpName}` | POST | `{ "audience": "client_id_123", "label": "Mobile BR Production" }` | USES_IDP relationship (App → IDP) |
 | 4 | `/proxy` | POST | `{ "name": "account-service", "defaultPolicy": "deny" }` | APIProxy node |
-| 5 | `/access` | POST | `{ "appId": "mobile-app-br", "proxyName": "account-service", "audience": "client_id_123" }` | ACCESS_PROXY relationship (App → Proxy) |
+| 5 | `/access` | POST | `{ "appId": "mobile-app-br", "proxyName": "account-service", "audience": "client_id_123", "idpName": "auth0" }` | ACCESS_PROXY relationship (App → Proxy) |
 | 6 | `/rule` | POST | See below | Rule + Validations + Enrichments |
 | 6b | `/rules` | POST | See below | Multiple Rules for same proxy+IDP (batch) |
 | 7 | `/app/{appId}` | DELETE | — | Removes App + all relationships |
@@ -134,7 +134,8 @@ POST /nomos/v1/api/admin/access
 {
   "appId": "mobile-app-br",
   "proxyName": "account-service",
-  "audience": "mobile-br-auth0-client"
+  "audience": "mobile-br-auth0-client",
+  "idpName": "auth0"
 }
 ```
 
@@ -143,7 +144,8 @@ POST /nomos/v1/api/admin/access
 {
   "appId": "mobile-app-br",
   "proxyName": "billing-service",
-  "audience": "mobile-br-auth0-client"
+  "audience": "mobile-br-auth0-client",
+  "idpName": "auth0"
 }
 ```
 
@@ -152,7 +154,8 @@ POST /nomos/v1/api/admin/access
 {
   "appId": "mobile-app-br",
   "proxyName": "account-service",
-  "audience": "mobile-br-kc-internal"
+  "audience": "mobile-br-kc-internal",
+  "idpName": "keycloak"
 }
 ```
 
@@ -167,7 +170,7 @@ POST /nomos/v1/api/admin/proxy
 { "name": "notification-service", "defaultPolicy": "allow" }
 
 POST /nomos/v1/api/admin/access
-{ "appId": "mobile-app-br", "proxyName": "notification-service", "audience": "mobile-br-auth0-client" }
+{ "appId": "mobile-app-br", "proxyName": "notification-service", "audience": "mobile-br-auth0-client", "idpName": "auth0" }
 ```
 
 At runtime:
