@@ -278,7 +278,7 @@ Base path: `/nomos/v1/api/admin`
 | `/audiences/search?label={text}` | GET | Search audiences by label (case-insensitive) |
 | `/app/{appId}/audiences` | GET | List all audiences for a specific app |
 | `/apps?aud={audience}&iss={issuer}` | GET | List apps associated with an audience and issuer |
-| `/access/{appId}?aud={audience}` | GET | List proxies accessible by an app for a given audience |
+| `/access/{appId}?aud={audience}&idp={idpName}` | GET | List proxies accessible by an app for a given audience and IDP |
 | `/proxy/{proxyName}/apps` | GET | List apps that can access a proxy |
 
 ### Caller Reference — Requests and Responses
@@ -306,7 +306,7 @@ GET /nomos/v1/api/admin/apps?aud=mobile-br-auth0-client&iss=https%3A%2F%2Fauth0.
 #### 3. Get proxies accessible by an app + audience
 
 ```
-GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client
+GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client&idp=auth0
 ```
 ```json
 200 OK
@@ -320,7 +320,7 @@ GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client
 #### 3b. With expand=rules (includes path patterns)
 
 ```
-GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client&expand=rules
+GET /nomos/v1/api/admin/access/mobile-app-br?aud=mobile-br-auth0-client&idp=auth0&expand=rules
 ```
 ```json
 200 OK
