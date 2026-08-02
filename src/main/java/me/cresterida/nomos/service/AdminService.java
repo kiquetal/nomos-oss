@@ -127,11 +127,11 @@ public class AdminService {
                         "DELETE r",
                         Values.parameters("appId", appId, "aud", audience, "idpName", idpName)
                 ).consume();
-                // Delete all ACCESS_PROXY relationships with this audience
+                // Delete ACCESS_PROXY relationships with this audience AND idp
                 tx.run(
-                        "MATCH (a:App {appId: $appId})-[acc:ACCESS_PROXY {audience: $aud}]->() " +
+                        "MATCH (a:App {appId: $appId})-[acc:ACCESS_PROXY {audience: $aud, idp: $idp}]->() " +
                         "DELETE acc",
-                        Values.parameters("appId", appId, "aud", audience)
+                        Values.parameters("appId", appId, "aud", audience, "idp", idpName)
                 ).consume();
                 return null;
             });
@@ -152,8 +152,8 @@ public class AdminService {
     }
 
     public void createAccess(CreateAccessRequest req) {
-        log.info("Creating ACCESS_PROXY: appId='{}', proxyName='{}', audience='{}'",
-                req.appId(), req.proxyName(), req.audience());
+        log.info("Creating ACCESS_PROXY: appId='{}', proxyName='{}', audience='{}', idp='{}'",
+                req.appId(), req.proxyName(), req.audience(), req.idpName());
         try (Session session = driver.session()) {
             session.executeWrite(tx -> {
                 Result appCheck = tx.run("MATCH (a:App {appId: $appId}) RETURN a", Values.parameters("appId", req.appId()));
@@ -164,22 +164,27 @@ public class AdminService {
                 if (!proxyCheck.hasNext()) {
                     throw new NomosException("PROXY_NOT_FOUND", "Proxy '" + req.proxyName() + "' does not exist");
                 }
+                Result idpCheck = tx.run("MATCH (i:IDP {name: $name}) RETURN i", Values.parameters("name", req.idpName()));
+                if (!idpCheck.hasNext()) {
+                    throw new NomosException("IDP_NOT_FOUND", "IDP '" + req.idpName() + "' does not exist");
+                }
                 Result audCheck = tx.run(
-                        "MATCH (a:App {appId: $appId})-[:USES_IDP {audience: $aud}]->() RETURN a",
-                        Values.parameters("appId", req.appId(), "aud", req.audience()));
+                        "MATCH (a:App {appId: $appId})-[:USES_IDP {audience: $aud}]->(i:IDP {name: $idp}) RETURN a",
+                        Values.parameters("appId", req.appId(), "aud", req.audience(), "idp", req.idpName()));
                 if (!audCheck.hasNext()) {
                     throw new NomosException("AUDIENCE_NOT_REGISTERED",
-                            "Audience '" + req.audience() + "' is not registered for app '" + req.appId() + "'");
+                            "Audience '" + req.audience() + "' is not registered for app '" + req.appId() + "' on IDP '" + req.idpName() + "'");
                 }
                 tx.run(
                     "MATCH (a:App {appId: $appId}) " +
                     "MATCH (p:APIProxy {name: $proxyName}) " +
-                    "MERGE (a)-[:ACCESS_PROXY {audience: $audience}]->(p) " +
+                    "MERGE (a)-[:ACCESS_PROXY {audience: $audience, idp: $idp}]->(p) " +
                     "RETURN a, p",
                     Values.parameters(
                             "appId", req.appId(),
                             "proxyName", req.proxyName(),
-                            "audience", req.audience()
+                            "audience", req.audience(),
+                            "idp", req.idpName()
                     )
                 ).consume();
                 return null;

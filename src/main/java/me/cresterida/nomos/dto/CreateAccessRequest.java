@@ -14,5 +14,9 @@ public record CreateAccessRequest(
 
         @NotBlank(message = "Audience is required")
         @Schema(example = "mobile-br-auth0-client")
-        String audience
+        String audience,
+
+        @NotBlank(message = "IDP name is required")
+        @Schema(example = "auth0")
+        String idpName
 ) {}

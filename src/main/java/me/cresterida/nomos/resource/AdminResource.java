@@ -232,7 +232,8 @@ public class AdminResource {
     @Path("/access/{appId}")
     @Operation(summary = "List proxies accessible by an app for an audience",
             description = "Returns all APIProxy nodes the app can reach with this audience. " +
-                    "Use expand=rules to include path patterns and methods for each proxy.")
+                    "Use expand=rules to include path patterns and methods for each proxy. " +
+                    "Use idp to filter by a specific IDP (recommended when same audience exists across IDPs).")
     @APIResponse(responseCode = "200", description = "List of accessible proxies",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = ProxyAccessResponse[].class),
@@ -240,15 +241,16 @@ public class AdminResource {
     public Response getProxiesByAppAndAudience(
             @PathParam("appId") String appId,
             @QueryParam("aud") String aud,
+            @QueryParam("idp") String idp,
             @QueryParam("expand") String expand) {
         if (aud == null || aud.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("Query parameter 'aud' is required").build();
         }
         if ("rules".equals(expand)) {
-            return Response.ok(ruleQueryService.getProxiesByAppAndAudienceExpanded(appId, aud)).build();
+            return Response.ok(ruleQueryService.getProxiesByAppAndAudienceExpanded(appId, aud, idp)).build();
         }
-        return Response.ok(ruleQueryService.getProxiesByAppAndAudience(appId, aud)).build();
+        return Response.ok(ruleQueryService.getProxiesByAppAndAudience(appId, aud, idp)).build();
     }
 
     @GET

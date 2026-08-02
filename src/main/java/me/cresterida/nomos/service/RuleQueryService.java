@@ -124,14 +124,17 @@ public class RuleQueryService {
         }
     }
 
-    public List<ProxyAccessResponse> getProxiesByAppAndAudience(String appId, String audience) {
-        log.info("Fetching proxies for appId='{}', audience='{}'", appId, audience);
+    public List<ProxyAccessResponse> getProxiesByAppAndAudience(String appId, String audience, String idp) {
+        log.info("Fetching proxies for appId='{}', audience='{}', idp='{}'", appId, audience, idp);
         try (Session session = driver.session()) {
             return session.executeRead(tx -> {
-                Result result = tx.run(
-                        "MATCH (a:App {appId: $appId})-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy) " +
-                        "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy",
-                        Values.parameters("appId", appId, "aud", audience)
+                String query = (idp != null && !idp.isBlank())
+                        ? "MATCH (a:App {appId: $appId})-[r:ACCESS_PROXY {audience: $aud, idp: $idp}]->(p:APIProxy) " +
+                          "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy"
+                        : "MATCH (a:App {appId: $appId})-[r:ACCESS_PROXY {audience: $aud}]->(p:APIProxy) " +
+                          "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy";
+                Result result = tx.run(query,
+                        Values.parameters("appId", appId, "aud", audience, "idp", idp != null ? idp : "")
                 );
                 List<ProxyAccessResponse> proxies = new ArrayList<>();
                 while (result.hasNext()) {
@@ -146,17 +149,23 @@ public class RuleQueryService {
         }
     }
 
-    public List<ProxyAccessExpandedResponse> getProxiesByAppAndAudienceExpanded(String appId, String audience) {
-        log.info("Fetching proxies with rules for appId='{}', audience='{}'", appId, audience);
+    public List<ProxyAccessExpandedResponse> getProxiesByAppAndAudienceExpanded(String appId, String audience, String idp) {
+        log.info("Fetching proxies with rules for appId='{}', audience='{}', idp='{}'", appId, audience, idp);
         try (Session session = driver.session()) {
             return session.executeRead(tx -> {
-                Result result = tx.run(
-                        "MATCH (a:App {appId: $appId})-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy) " +
-                        "OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule) " +
-                        "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy, " +
-                        "       r.pathPattern AS pathPattern, r.methods AS methods " +
-                        "ORDER BY p.name, r.pathPattern",
-                        Values.parameters("appId", appId, "aud", audience)
+                String query = (idp != null && !idp.isBlank())
+                        ? "MATCH (a:App {appId: $appId})-[:ACCESS_PROXY {audience: $aud, idp: $idp}]->(p:APIProxy) " +
+                          "OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule) " +
+                          "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy, " +
+                          "       r.pathPattern AS pathPattern, r.methods AS methods " +
+                          "ORDER BY p.name, r.pathPattern"
+                        : "MATCH (a:App {appId: $appId})-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy) " +
+                          "OPTIONAL MATCH (p)-[:HAS_RULE]->(r:Rule) " +
+                          "RETURN p.name AS proxy, p.defaultPolicy AS defaultPolicy, " +
+                          "       r.pathPattern AS pathPattern, r.methods AS methods " +
+                          "ORDER BY p.name, r.pathPattern";
+                Result result = tx.run(query,
+                        Values.parameters("appId", appId, "aud", audience, "idp", idp != null ? idp : "")
                 );
 
                 // Group by proxy
@@ -208,7 +217,8 @@ public class RuleQueryService {
                 // We don't care which app — we care if ANY app with this audience can reach the proxy.
                 Result access = tx.run(
                         "MATCH (a:App)-[:USES_IDP {audience: $aud}]->(i:IDP {issuer: $issuer}) " +
-                        "MATCH (a)-[:ACCESS_PROXY {audience: $aud}]->(p:APIProxy {name: $proxy}) " +
+                        "MATCH (a)-[acc:ACCESS_PROXY]->(p:APIProxy {name: $proxy}) " +
+                        "WHERE acc.audience = $aud AND acc.idp = i.name " +
                         "RETURN a.appId AS appId, i.name AS idp, p.defaultPolicy AS defaultPolicy " +
                         "LIMIT 1",
                         Values.parameters("aud", aud, "issuer", issuer, "proxy", proxy)
