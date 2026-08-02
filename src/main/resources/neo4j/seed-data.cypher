@@ -61,58 +61,58 @@ CREATE (reportSvc:APIProxy {name: 'report-service', defaultPolicy: 'deny'})
 // ============================================================
 
 // mobile-app-br (auth0)
-CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client'}]->(accountSvc)
-CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client'}]->(billingSvc)
-CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client'}]->(paymentSvc)
+CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client', idp: 'auth0'}]->(accountSvc)
+CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client', idp: 'auth0'}]->(billingSvc)
+CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-auth0-client', idp: 'auth0'}]->(paymentSvc)
 
 // mobile-app-br (keycloak) — different access
-CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-kc-internal'}]->(accountSvc)
-CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-kc-internal'}]->(reportSvc)
+CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-kc-internal', idp: 'keycloak'}]->(accountSvc)
+CREATE (app1)-[:ACCESS_PROXY {audience: 'mobile-br-kc-internal', idp: 'keycloak'}]->(reportSvc)
 
 // mobile-app-co (auth0)
-CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client'}]->(accountSvc)
-CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client'}]->(billingSvc)
-CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client'}]->(catalogSvc)
+CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client', idp: 'auth0'}]->(accountSvc)
+CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client', idp: 'auth0'}]->(billingSvc)
+CREATE (app2)-[:ACCESS_PROXY {audience: 'mobile-co-auth0-client', idp: 'auth0'}]->(catalogSvc)
 
 // mobile-app-ar (auth0)
-CREATE (app3)-[:ACCESS_PROXY {audience: 'mobile-ar-auth0-client'}]->(accountSvc)
-CREATE (app3)-[:ACCESS_PROXY {audience: 'mobile-ar-auth0-client'}]->(catalogSvc)
+CREATE (app3)-[:ACCESS_PROXY {audience: 'mobile-ar-auth0-client', idp: 'auth0'}]->(accountSvc)
+CREATE (app3)-[:ACCESS_PROXY {audience: 'mobile-ar-auth0-client', idp: 'auth0'}]->(catalogSvc)
 
 // web-portal-br (keycloak)
-CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client'}]->(accountSvc)
-CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client'}]->(billingSvc)
-CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client'}]->(reportSvc)
-CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client'}]->(notifSvc)
+CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client', idp: 'keycloak'}]->(accountSvc)
+CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client', idp: 'keycloak'}]->(billingSvc)
+CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client', idp: 'keycloak'}]->(reportSvc)
+CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-kc-client', idp: 'keycloak'}]->(notifSvc)
 
 // web-portal-br (auth0 federated) — limited access
-CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-auth0-federated'}]->(catalogSvc)
+CREATE (app4)-[:ACCESS_PROXY {audience: 'web-br-auth0-federated', idp: 'auth0'}]->(catalogSvc)
 
 // web-portal-co (keycloak)
-CREATE (app5)-[:ACCESS_PROXY {audience: 'web-co-kc-client'}]->(accountSvc)
-CREATE (app5)-[:ACCESS_PROXY {audience: 'web-co-kc-client'}]->(billingSvc)
+CREATE (app5)-[:ACCESS_PROXY {audience: 'web-co-kc-client', idp: 'keycloak'}]->(accountSvc)
+CREATE (app5)-[:ACCESS_PROXY {audience: 'web-co-kc-client', idp: 'keycloak'}]->(billingSvc)
 
 // partner-api-acme (cognito)
-CREATE (app6)-[:ACCESS_PROXY {audience: 'acme-partner-client'}]->(accountSvc)
-CREATE (app6)-[:ACCESS_PROXY {audience: 'acme-partner-client'}]->(billingSvc)
+CREATE (app6)-[:ACCESS_PROXY {audience: 'acme-partner-client', idp: 'cognito'}]->(accountSvc)
+CREATE (app6)-[:ACCESS_PROXY {audience: 'acme-partner-client', idp: 'cognito'}]->(billingSvc)
 
 // partner-api-globex (cognito)
-CREATE (app7)-[:ACCESS_PROXY {audience: 'globex-partner-client'}]->(catalogSvc)
-CREATE (app7)-[:ACCESS_PROXY {audience: 'globex-partner-client'}]->(notifSvc)
+CREATE (app7)-[:ACCESS_PROXY {audience: 'globex-partner-client', idp: 'cognito'}]->(catalogSvc)
+CREATE (app7)-[:ACCESS_PROXY {audience: 'globex-partner-client', idp: 'cognito'}]->(notifSvc)
 
 // internal-backoffice (keycloak) — full access
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(accountSvc)
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(billingSvc)
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(catalogSvc)
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(paymentSvc)
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(notifSvc)
-CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client'}]->(reportSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(accountSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(billingSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(catalogSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(paymentSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(notifSvc)
+CREATE (app8)-[:ACCESS_PROXY {audience: 'backoffice-kc-client', idp: 'keycloak'}]->(reportSvc)
 
 // iot-device-gateway (cognito)
-CREATE (app9)-[:ACCESS_PROXY {audience: 'iot-cognito-client'}]->(notifSvc)
+CREATE (app9)-[:ACCESS_PROXY {audience: 'iot-cognito-client', idp: 'cognito'}]->(notifSvc)
 
 // chatbot-service (auth0)
-CREATE (app10)-[:ACCESS_PROXY {audience: 'chatbot-auth0-client'}]->(accountSvc)
-CREATE (app10)-[:ACCESS_PROXY {audience: 'chatbot-auth0-client'}]->(notifSvc)
+CREATE (app10)-[:ACCESS_PROXY {audience: 'chatbot-auth0-client', idp: 'auth0'}]->(accountSvc)
+CREATE (app10)-[:ACCESS_PROXY {audience: 'chatbot-auth0-client', idp: 'auth0'}]->(notifSvc)
 
 // ============================================================
 // Rules + Validations + Enrichments
