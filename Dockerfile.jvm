@@ -2,10 +2,10 @@
 # Multi-stage Dockerfile for Quarkus JVM mode
 #
 # Build:
-#   docker build -f Dockerfile.jvm -t py.com.edge/nomos:1.0.0-jvm .
+#   docker build -f Dockerfile.jvm -t me.cresterida/nomos-oss:1.0.0-jvm .
 #
 # Run:
-#   docker run -i --rm -p 8080:8080 -e NEO4J_URI=bolt://host.docker.internal:7687 py.com.edge/nomos:1.0.0-jvm
+#   docker run -i --rm -p 8080:8080 -e NEO4J_URI=bolt://host.docker.internal:7687 me.cresterida/nomos-oss:1.0.0-jvm
 ###
 
 # --- Build stage ---

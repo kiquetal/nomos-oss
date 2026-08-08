@@ -40,7 +40,7 @@ Client → KrakenD (validates JWT) → API Service Pod → Nomos (get rules) →
 | Node       | Properties                                                                 |
 |------------|---------------------------------------------------------------------------|
 | App        | `audience` (unique) — maps to JWT `aud` claim                             |
-| IDP        | `name` (unique), `issuer` — e.g., auth0, tigoidp, keycloak               |
+| IDP        | `name` (unique), `issuer` — e.g., auth0, cognito, keycloak               |
 | APIProxy   | `name` (unique), `defaultPolicy` (allow/deny)                             |
 | Rule       | `id` (UUID), `pathPattern` — e.g., `/{country}/accounts/{msisdn}/balance` |
 | Validation | `order`, `paramName`, `jwtJsonPath`, `validation` (equals/contains)       |
@@ -186,12 +186,12 @@ JWT: { "aud": "client_id_123", "iss": "https://auth0.example.com", "country": "B
 - **Hibernate Validator** (Bean Validation)
 - **Quarkus Kubernetes extension** (generates K8s manifests)
 - **Docker** (multi-stage Dockerfile)
-- **Package**: `py.com.edge.nomos`
+- **Package**: `me.cresterida.nomos`
 
 ## Package Structure
 
 ```
-src/main/java/py/com/edge/nomos/
+src/main/java/me/cresterida/nomos/
 ├── domain/          # Domain entities
 ├── resource/        # JAX-RS REST resources
 ├── service/         # Business logic + Neo4j Cypher

@@ -7,7 +7,7 @@ Identity Provider that issues JWTs.
 
 | Property | Type   | Required | Constraint | Description                          |
 |----------|--------|----------|------------|--------------------------------------|
-| name     | String | ✅       | UNIQUE     | Identifier (auth0, tigoidp, keycloak)|
+| name     | String | ✅       | UNIQUE     | Identifier (auth0, cognito, keycloak)|
 | issuer   | String | ✅       |            | JWT issuer URL (matches `iss` claim) |
 
 ### App
@@ -90,7 +90,7 @@ This means the same App can have different proxy access depending on which audie
 | audience         | IDP     | Allowed proxies                     |
 |------------------|---------|-------------------------------------|
 | client_id_123    | auth0   | account-service, notification-service |
-| mobile-br-prod   | tigoidp | account-service, payment-gateway    |
+| mobile-br-cognito-client | cognito | account-service, payment-gateway    |
 
 ---
 
@@ -184,7 +184,7 @@ Caller evaluates locally:
 ```
 (App: appId="mobile-app-br")
     ├── [:USES_IDP {audience: "client_id_123"}] → (IDP: auth0, issuer: https://auth0.example.com)
-    ├── [:USES_IDP {audience: "mobile-br-prod"}] → (IDP: tigoidp, issuer: https://tigoidp.example.com)
+    ├── [:USES_IDP {audience: "mobile-br-cognito-client"}] → (IDP: cognito, issuer: https://cognito-idp.example.com)
     │
     ├── [:ACCESS_PROXY {audience: "client_id_123"}] → (APIProxy: account-service, defaultPolicy: deny)
     │                       └── [:HAS_RULE] → (Rule: /{country}/accounts/{msisdn}/balance)
@@ -198,14 +198,14 @@ Caller evaluates locally:
     ├── [:ACCESS_PROXY {audience: "client_id_123"}] → (APIProxy: notification-service, defaultPolicy: allow)
     │                       (no rules — defaultPolicy: allow means any path is permitted)
     │
-    ├── [:ACCESS_PROXY {audience: "mobile-br-prod"}] → (APIProxy: account-service, defaultPolicy: deny)
+    ├── [:ACCESS_PROXY {audience: "mobile-br-cognito-client"}] → (APIProxy: account-service, defaultPolicy: deny)
     │                       └── [:HAS_RULE] → (Rule: /{country}/accounts/{msisdn}/balance)
-    │                                             ├── [:FOR_IDP] → (IDP: tigoidp)
+    │                                             ├── [:FOR_IDP] → (IDP: cognito)
     │                                             └── ... (same validation structure)
     │
-    └── [:ACCESS_PROXY {audience: "mobile-br-prod"}] → (APIProxy: payment-gateway, defaultPolicy: deny)
+    └── [:ACCESS_PROXY {audience: "mobile-br-cognito-client"}] → (APIProxy: payment-gateway, defaultPolicy: deny)
                             └── [:HAS_RULE] → (Rule: /{country}/billing/mobile/{billingId})
-                                                  ├── [:FOR_IDP] → (IDP: tigoidp)
+                                                  ├── [:FOR_IDP] → (IDP: cognito)
                                                   ├── [:HAS_VALIDATION] → (Validation: order=1, level=1, paramName=country, $.country, equals)
                                                   └── [:HAS_VALIDATION] → (Validation: order=2, level=2, paramName=billingId, $.aL, contains)
                                                                               └── [:HAS_ENRICHMENT] → (Enrichment: $.allAc==false → /users/me)
@@ -216,7 +216,7 @@ Caller evaluates locally:
 | Token arrives with aud= | Can reach | Cannot reach |
 |-------------------------|-----------|--------------|
 | client_id_123 (auth0)   | account-service, notification-service | payment-gateway |
-| mobile-br-prod (tigoidp)| account-service, payment-gateway | notification-service |
+| mobile-br-cognito-client (cognito)| account-service, payment-gateway | notification-service |
 
 ---
 

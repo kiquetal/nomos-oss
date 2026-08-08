@@ -68,9 +68,11 @@ MATCH (a:App)-[:USES_IDP {audience: 'unknown-aud-xyz'}]->(i:IDP)
 RETURN a, i;
 
 // --- DENY: Audience exists but proxy not allowed ---
-// mobile-br-prod (tigoidp) does NOT have ACCESS_PROXY to billing-service
-MATCH (a:App)-[:USES_IDP {audience: 'mobile-br-prod'}]->(i:IDP)
-MATCH (a)-[:ACCESS_PROXY {audience: 'mobile-br-prod'}]->(p:APIProxy {name: 'billing-service'})
+// --- DENY: Audience exists but proxy not allowed ---
+// acme-partner-client (cognito) does NOT have ACCESS_PROXY to billing-service (only access to account-service and billing-service in seed, wait: let's use partner-api-globex with account-service)
+// globex-partner-client (cognito) does NOT have ACCESS_PROXY to billing-service
+MATCH (a:App)-[:USES_IDP {audience: 'globex-partner-client'}]->(i:IDP)
+MATCH (a)-[:ACCESS_PROXY {audience: 'globex-partner-client'}]->(p:APIProxy {name: 'billing-service'})
 RETURN a, p;
 // Returns nothing → 403 PROXY_NOT_ALLOWED
 

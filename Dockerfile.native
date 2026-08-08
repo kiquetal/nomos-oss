@@ -2,10 +2,10 @@
 # Multi-stage Dockerfile for Quarkus native mode (GraalVM/Mandrel)
 #
 # Build:
-#   docker build -f Dockerfile.native -t py.com.edge/nomos:1.0.0-native .
+#   docker build -f Dockerfile.native -t me.cresterida/nomos-oss:1.0.0-native .
 #
 # Run:
-#   docker run -i --rm -p 8080:8080 -e NEO4J_URI=bolt://host.docker.internal:7687 py.com.edge/nomos:1.0.0-native
+#   docker run -i --rm -p 8080:8080 -e NEO4J_URI=bolt://host.docker.internal:7687 me.cresterida/nomos-oss:1.0.0-native
 #
 # Note: Native build requires significant memory (~6GB). Adjust Docker daemon memory if needed.
 ###
